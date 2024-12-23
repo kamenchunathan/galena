@@ -8,4 +8,4 @@ cd "$(dirname "$0")"
 
 cargo build 
 
-cp ./target/debug/libgalena_platform.a ./libhost.a
+cp ./target/debug/libgalena_platform.a ./platform/libhost.a
