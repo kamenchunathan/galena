@@ -1,0 +1,11 @@
+[package]
+name = "roc_host_bin"
+version = "0.0.1"
+edition = "2021"
+
+[[bin]]
+name = "host"
+path = "src/main.rs"
+
+[dependencies]
+roc_host = { path = "../roc_host" }

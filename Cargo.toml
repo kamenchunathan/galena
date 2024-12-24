@@ -1,14 +1,11 @@
-[package]
-name = "galena"
-version = "0.1.0"
-edition = "2021"
-build = "build.rs"
+[workspace]
+members = ["crates/roc_host", "crates/roc_host_bin", "crates/roc_host_lib"]
+resolver = "2"
 
-[lib]
-name = "galena_platform"
-crate-type = ["staticlib"]
-path = "src/lib.rs"
+[profile.release]
+lto = true
+strip = "debuginfo"
+codegen-units = 1
 
-[dependencies]
-libc = "0.2"
+[workspace.dependencies]
 roc_std = { git = "https://github.com/roc-lang/roc.git" }

@@ -32,3 +32,4 @@ backendApp = Backend.backend {
     update: \_, model -> (model, Cmd.none),
     updateFromFrontend: \_ -> Cmd.none,
 }
+
