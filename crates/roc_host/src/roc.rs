@@ -1,9 +1,12 @@
 use core::ffi::c_void;
-use roc_std::RocStr;
+use roc_std::{RocBox, RocResult, RocStr};
 
 extern "C" {
-    #[link_name = "roc__mainForHost_1_exposed_generic"]
-    pub fn roc_main(_: &mut RocStr);
+    #[link_name = "roc__mainForHost_1_exposed"]
+    pub fn roc_main(_: i32) -> RocBox<i32>;
+
+    // #[link_name = "roc__init_for_host_1_exposed_size"]
+    // fn size() -> i64;
 }
 
 #[no_mangle]

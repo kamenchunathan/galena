@@ -1,18 +1,26 @@
+# platform "galena_platform"
+#     requires { FrontendModel, BackendModel, ToFrontendMsg, ToBackendMsg } {
+#         frontendApp : Frontend FrontendModel frontendMsg ToFrontendMsg ToBackendMsg,
+#         backendApp : Backend BackendModel backendMsg ToFrontendMsg ToBackendMsg,
+#     }
+#     exposes [Frontend, Backend, Cmd]
+#     packages {}
+#     imports []
+#     provides [mainForHost!]
+#
+# import Frontend exposing [Frontend]
+# import Backend exposing [Backend]
+#
+# mainForHost! : I32 => I32
+# mainForHost! = \_ -> const (frontendApp, backendApp) 0
+#
+# const = \_, a -> a
 platform "galena_platform"
-    requires { FrontendModel, BackendModel, ToFrontendMsg, ToBackendMsg } {
-        frontendApp : Frontend FrontendModel frontendMsg ToFrontendMsg ToBackendMsg,
-        backendApp : Backend BackendModel backendMsg ToFrontendMsg ToBackendMsg,
-    }
+    requires {} {}
     exposes [Frontend, Backend, Cmd]
     packages {}
     imports []
-    provides [mainForHost]
+    provides [mainForHost!]
 
-import Frontend exposing [Frontend]
-import Backend exposing [Backend]
-
-mainForHost : Str
-mainForHost = const (frontendApp, backendApp) "Hello world"
-
-const = \_, a -> a
-
+mainForHost! : I32 => Box I32
+mainForHost! = \_ -> Box.box 8492

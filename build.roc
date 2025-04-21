@@ -19,10 +19,10 @@ main =
     cli_parser =
         Arg.Opt.maybeStr { short: "p", long: "roc", help: "Path to the roc executable. Can be just `roc` or a full path." }
         |> Arg.Cli.finish {
-            name: "basic-webserver-builder",
+            name: "galena",
             version: "",
-            authors: ["Luke Boswell <https://github.com/lukewilliamboswell>"],
-            description: "Generates all files needed by Roc to use this basic-cli platform.",
+            authors: [""],
+            description: "",
         }
         |> Arg.Cli.assertValid
 

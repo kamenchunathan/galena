@@ -12,6 +12,8 @@ backend :
     {
         init : model,
         update : msg, model -> (model, Cmd msg),
+        # TODO: Add a preconnect that may upgrade the connection or respond with an error
+        # beforeConnect : Req -> Response,
         updateFromFrontend : toBackendMsg -> Cmd msg,
     }
     -> Backend model msg toFrontendMsg toBackendMsg
