@@ -1,5 +1,10 @@
 [workspace]
-members = ["crates/roc_host", "crates/roc_host_bin", "crates/roc_host_lib"]
+members = [
+  "crates/roc_host",
+  "crates/roc_host_bin",
+  "crates/roc_host_lib",
+  "crates/frontend",
+]
 resolver = "2"
 
 [profile.release]
@@ -8,4 +13,5 @@ strip = "debuginfo"
 codegen-units = 1
 
 [workspace.dependencies]
+# TODO: Add a revision here
 roc_std = { git = "https://github.com/roc-lang/roc.git" }
