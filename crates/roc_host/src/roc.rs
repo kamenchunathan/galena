@@ -3,7 +3,7 @@ use roc_std::{RocBox, RocResult, RocStr};
 
 extern "C" {
     #[link_name = "roc__mainForHost_1_exposed"]
-    pub fn roc_main(_: i32) -> RocBox<i32>;
+    pub fn roc_main(_: i32) -> i32;
 
     // #[link_name = "roc__init_for_host_1_exposed_size"]
     // fn size() -> i64;
