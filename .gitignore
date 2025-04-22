@@ -3,5 +3,7 @@
 *.so
 *.rh
 *.rm
+*.wasm
 out/
 build
+.direnv

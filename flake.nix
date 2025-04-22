@@ -52,6 +52,15 @@
             rocPkgs.cli
             rocPkgs.lang-server
 
+            # wasm tools
+            wasmtime
+            wasm-tools
+            wabt
+
+            zig
+
+            # command runner
+            just
           ];
 
           env = {
