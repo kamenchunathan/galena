@@ -6,5 +6,7 @@
 *.wasm
 out/
 build
+dist/
+tmp/
 .direnv
 .zig-cache/

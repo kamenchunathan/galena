@@ -3,7 +3,8 @@ members = [
   "crates/roc_host",
   "crates/roc_host_bin",
   "crates/roc_host_lib",
-  "crates/frontend",
+  "crates/backend",
+  "crates/galena_cli",
 ]
 resolver = "2"
 

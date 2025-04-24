@@ -1,128 +1,93 @@
-// const std = @import("std");
+const std = @import("std");
+const str = @import("glue/str.zig");
 const builtin = @import("builtin");
-const RocResult = @import("glue/result.zig").RocResult;
+
+const Allocator = std.mem.Allocator;
+const RocStr = str.RocStr;
+
+comptime {
+    if (builtin.target.cpu.arch != .wasm32) {
+        @compileError("This platform is for WebAssembly only. You need to pass `--target wasm32` to the Roc compiler.");
+    }
+}
 
 const Align = 2 * @alignOf(usize);
-const RocStr = opaque {};
-
 extern fn malloc(size: usize) callconv(.C) ?*align(Align) anyopaque;
 extern fn realloc(c_ptr: [*]align(Align) u8, size: usize) callconv(.C) ?*anyopaque;
 extern fn free(c_ptr: [*]align(Align) u8) callconv(.C) void;
-extern fn memcpy(dst: [*]u8, src: [*]u8, size: usize) callconv(.C) void;
-extern fn memset(dst: [*]u8, value: i32, size: usize) callconv(.C) void;
-
-const DEBUG: bool = false;
+extern fn memcpy(dest: *anyopaque, src: *anyopaque, count: usize) *anyopaque;
 
 export fn roc_alloc(size: usize, alignment: u32) callconv(.C) ?*anyopaque {
     _ = alignment;
-    if (DEBUG) {
-        const ptr = malloc(size);
-        // const stdout = std.io.getStdOut().writer();
-        // stdout.print("alloc:   {d} (alignment {d}, size {d})\n", .{ ptr, alignment, size }) catch unreachable;
-        return ptr;
-    } else {
-        return malloc(size);
-    }
+
+    return malloc(size);
 }
 
 export fn roc_realloc(c_ptr: *anyopaque, new_size: usize, old_size: usize, alignment: u32) callconv(.C) ?*anyopaque {
     _ = old_size;
     _ = alignment;
-    if (DEBUG) {
-        // const stdout = std.io.getStdOut().writer();
-        // stdout.print("realloc: {d} (alignment {d}, old_size {d})\n", .{ c_ptr, alignment, old_size }) catch unreachable;
-    }
 
     return realloc(@as([*]align(Align) u8, @alignCast(@ptrCast(c_ptr))), new_size);
 }
 
 export fn roc_dealloc(c_ptr: *anyopaque, alignment: u32) callconv(.C) void {
     _ = alignment;
-    if (DEBUG) {
-        // const stdout = std.io.getStdOut().writer();
-        // stdout.print("dealloc: {d} (alignment {d})\n", .{ c_ptr, alignment }) catch unreachable;
-    }
 
     free(@as([*]align(Align) u8, @alignCast(@ptrCast(c_ptr))));
 }
 
-export fn roc_panic(msg: *RocStr, tag_id: u32) callconv(.C) void {
-    _ = msg;
-    // const stderr = std.io.getStdErr().writer();
-    switch (tag_id) {
-        0 => {
-            // stderr.print("Roc standard library crashed with message\n\n    {s}\n\nShutting down\n", .{msg.asSlice()}) catch unreachable;
-        },
-        1 => {
-            // stderr.print("Application crashed with message\n\n    {s}\n\nShutting down\n", .{msg.asSlice()}) catch unreachable;
-        },
-        else => unreachable,
+// Exports
+pub export fn js_alloc_bytes(size: usize) ?[*]const u8 {
+    const ptr = malloc(size) orelse return null;
+    return @as([*]const u8, @ptrCast(@alignCast(ptr)));
+}
+
+// For JS to notify the WASM module that it finished writing to memory
+pub export fn js_write_res(ptr: [*]const u8, len: usize) void {
+    _ = ptr;
+    _ = len;
+}
+
+const Slice = packed struct { ptr: ?[*]const u8, len: usize };
+// Library code
+fn pack_pointer_and_length(ptr: [*]const u8, len: usize) u64 {
+    const ptr_addr = @intFromPtr(ptr);
+
+    std.debug.assert(ptr_addr <= 0xFFFFFFFF);
+    std.debug.assert(len <= 0xFFFFFFFF);
+
+    return ((@as(u64, @intCast(len)) << 32) | @as(u64, @intCast(ptr_addr)));
+}
+
+pub export fn js_greet_person(name_ptr: [*]const u8, name_len: usize) Slice {
+    // Get a temporary allocator for this operation
+    var buffer: [1000]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&buffer);
+    const allocator = fba.allocator();
+
+    var greeting: []u8 = undefined;
+    const name_bytes = name_ptr[0..name_len];
+    if (std.unicode.utf8ValidateSlice(name_bytes)) {
+        greeting = std.fmt.allocPrint(allocator, "Hello, {s}! Welcome to our WebAssembly module.", .{name_bytes}) catch {
+            return .{ .ptr = null, .len = 0 };
+        };
+    } else {
+        return .{ .ptr = null, .len = 0 };
     }
-    // std.process.exit(1);
+
+    const result_ptr =
+        @as([*]u8, @ptrCast(@alignCast(malloc(greeting.len) orelse return .{ .ptr = null, .len = 0 })));
+    _ = memcpy(result_ptr, greeting.ptr, greeting.len);
+
+    return .{ .ptr = result_ptr, .len = greeting.len };
 }
 
-export fn roc_dbg(loc: *RocStr, msg: *RocStr, src: *RocStr) callconv(.C) void {
-    _ = loc;
-    _ = msg;
-    _ = src;
-    // const stderr = std.io.getStdErr().writer();
-    // stderr.print("[{s}] {s} = {s}\n", .{ loc.asSlice(), src.asSlice(), msg.asSlice() }) catch unreachable;
-}
+// Imports
 
-export fn roc_memset(dst: [*]u8, value: i32, size: usize) callconv(.C) void {
-    return memset(dst, value, size);
-}
+extern fn roc__mainForHost_1_exposed(input: i32) callconv(.C) i32;
 
-extern fn kill(pid: c_int, sig: c_int) c_int;
-extern fn shm_open(name: *const i8, oflag: c_int, mode: c_uint) c_int;
-extern fn mmap(addr: ?*anyopaque, length: c_uint, prot: c_int, flags: c_int, fd: c_int, offset: c_uint) *anyopaque;
-extern fn getppid() c_int;
+pub export fn main() u8 {
+    _ = roc__mainForHost_1_exposed(0);
 
-fn roc_getppid() callconv(.C) c_int {
-    return getppid();
-}
-
-fn roc_getppid_windows_stub() callconv(.C) c_int {
     return 0;
-}
-
-fn roc_shm_open(name: *const i8, oflag: c_int, mode: c_uint) callconv(.C) c_int {
-    return shm_open(name, oflag, mode);
-}
-
-fn roc_mmap(addr: ?*anyopaque, length: c_uint, prot: c_int, flags: c_int, fd: c_int, offset: c_uint) callconv(.C) *anyopaque {
-    return mmap(addr, length, prot, flags, fd, offset);
-}
-
-comptime {
-    if (builtin.os.tag == .macos or builtin.os.tag == .linux) {
-        @export(roc_getppid, .{ .name = "roc_getppid", .linkage = .strong });
-        @export(roc_mmap, .{ .name = "roc_mmap", .linkage = .strong });
-        @export(roc_shm_open, .{ .name = "roc_shm_open", .linkage = .strong });
-    }
-
-    if (builtin.os.tag == .windows) {
-        @export(roc_getppid_windows_stub, .{ .name = "roc_getppid", .linkage = .strong });
-    }
-}
-
-extern fn roc__mainForHost_1_exposed(i32) callconv(.C) i32;
-
-pub fn main() void {
-    // const stdout = std.io.getStdOut().writer();
-    // const stderr = std.io.getStdErr().writer();
-
-    const exit_code = roc__mainForHost_1_exposed(0);
-
-    if (exit_code != 0) {
-        // stderr.print("Exited with code {d}\n", .{exit_code}) catch unreachable;
-    }
-}
-
-// an example effect to provide to the platform
-// this is where roc will call back into the host
-export fn roc_fx_stdout_line(msg: *RocStr) callconv(.C) void {
-    _ = msg;
-    // const stdout = std.io.getStdOut().writer();
-    // stdout.print("{s}\n", .{msg.asSlice()}) catch unreachable;
 }

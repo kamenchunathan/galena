@@ -28,14 +28,7 @@
           let
             rust = prev.rust-bin;
           in
-          if builtins.pathExists ./rust-toolchain.toml then
-            rust.fromRustupToolchainFile ./rust-toolchain.toml
-          else if builtins.pathExists ./rust-toolchain then
-            rust.fromRustupToolchainFile ./rust-toolchain
-          else
-            rust.stable.latest.default.override {
-              extensions = [ "rust-src" "rustfmt" ];
-            };
+          rust.fromRustupToolchainFile ./rust-toolchain.toml;
       };
 
       devShells = forEachSupportedSystem ({ pkgs, rocPkgs }: {
@@ -58,10 +51,19 @@
             wabt
 
             zig
+            llvmPackages_18.libllvm
+            llvmPackages_18.bintools-unwrapped
+
+            vscode-extensions.vadimcn.vscode-lldb
 
             # command runner
             just
+
+            # node
+            nodejs_23
+            nodePackages.pnpm
           ];
+
 
           env = {
             # Required by rust-analyzer

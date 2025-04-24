@@ -8,24 +8,6 @@ links = "app"
 [lib]
 name = "roc_host"
 
-[[bin]]
-name = "server"
-
 [dependencies]
 roc_std.workspace = true
 libc = "0.2"
-axum = { version = "0.7.9", features = ["macros", "ws"] }
-tokio-tungstenite = "0.26.1"
-tokio = { version = "1.42.0", features = ["net", "rt-multi-thread", "fs"] }
-tower = { version = "0.5.2" }
-tower-http = { version = "0.6.2", features = ["fs", "trace"] }
-mime = "0.3.17"
-tracing = "0.1.41"
-tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
-axum-macros = "0.4.2"
-tower-cookies = "0.10.0"
-rand = "0.8.5"
-base64 = "0.22.1"
-cookie = "0.18.1"
-futures = "0.3.31"
-futures-util = { version = "0.3.31", features = ["sink"] }

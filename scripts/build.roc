@@ -28,10 +28,10 @@ cli_parser =
     Opt.maybe_str({ short: "p", long: "roc", help: "Path to the roc executable. Can be just `roc` or a full path." })
     |> Cli.finish(
         {
-            name: "basic-webserver-builder",
+            name: "galena builder",
             version: "",
-            authors: ["Luke Boswell <https://github.com/lukewilliamboswell>"],
-            description: "Generates all files needed by Roc to use this basic-cli platform.",
+            authors: ["Nathan Kamenchu <https://github.com/kamenchunathan>"],
+            description: "",
         },
     )
     |> Cli.assert_valid

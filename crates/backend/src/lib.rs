@@ -30,8 +30,7 @@ struct AppState {
     clients: Arc<Mutex<HashMap<String, SplitSink<WebSocket, Message>>>>,
 }
 
-#[tokio::main]
-async fn main() {
+pub async fn run() {
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
@@ -62,7 +61,7 @@ async fn main() {
     let listener = TcpListener::bind("0.0.0.0:3000")
         .await
         .expect("Unable to bind to port");
-    tracing::debug!("listening on {}", listener.local_addr().unwrap());
+    tracing::info!("listening on {}", listener.local_addr().unwrap());
 
     axum::serve(
         listener,

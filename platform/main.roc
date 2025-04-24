@@ -22,5 +22,6 @@ platform "galena_platform"
     imports []
     provides [mainForHost!]
 
-mainForHost! : I32 =>  I32
-mainForHost! = \_ -> 8492
+mainForHost! : I32 => I32
+mainForHost! = |_| 8492
+
