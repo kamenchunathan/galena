@@ -57,22 +57,3 @@ build-examples:
 
 roc-clean:
     rm platform/{dynhost,libapp.so,linux-x64.rh,metadata_linux-x64.rm}
-
-
-
-build-frontend:
-    #!/bin/sh
-    temp_dir=$(mktemp -d -t roc_frontend_build_XXXXXX)
-
-    mkdir -p {{dist_dir}}
-    
-    cargo clean --package {{frontend_pkg}} --target wasm32-unknown-unknown --profile release
-    RUSTFLAGS='--emit=llvm-bc' cargo build --package {{frontend_pkg}} --release --target wasm32-unknown-unknown
-    llvm-link target/wasm32-unknown-unknown/release/deps/*.bc -o "$temp_dir/frontend_linked.bc"
-    llvm-dis "$temp_dir/frontend_linked.bc" -o "$temp_dir/frontend_linked.ll"
-    {{patch_script}} "$temp_dir/frontend_linked.ll" "$temp_dir/frontend_patched.ll"
-    llvm-as "$temp_dir/frontend_patched.ll" -o {{dist_dir}}/frontend.o
-
-    rm -rf "$temp_dir"
-
-

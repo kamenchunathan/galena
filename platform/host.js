@@ -1,6 +1,6 @@
 import { readFileSync } from "fs";
 
-function unpackSlice(value) {
+function unpack_slice(value) {
   const valueBigInt = BigInt(value);
   const lowBits = valueBigInt & 0xffffffffn;
   const highBits = (valueBigInt / 0x100000000n) | 0n;
@@ -9,6 +9,19 @@ function unpackSlice(value) {
     ptr: Number(lowBits), // Lower 32 bits as pointer
     len: Number(highBits), // Upper 32 bits as length
   };
+}
+
+function pack_slice(ptr, len) {
+  const ptrBigInt = BigInt(ptr);
+  const lenBigInt = BigInt(len);
+
+  // Ensure values fit in 32 bits
+  if (ptrBigInt > 0xffffffffn || lenBigInt > 0xffffffffn) {
+    throw new Error("Pointer or length exceeds 32-bit maximum");
+  }
+
+  // Pack: lower 32 bits = pointer, upper 32 bits = length
+  return (lenBigInt << 32n) | ptrBigInt;
 }
 
 async function roc_web_platform_run(wasm_filename) {
@@ -98,7 +111,28 @@ async function roc_web_platform_run(wasm_filename) {
   }
   memory = wasm_module.instance.exports.memory;
 
-  console.log(greetPerson(wasm_module.instance, "Nathan Kamenchu"));
+  // console.log(greetPerson(wasm_module.instance, "Nathan Kamenchu"));
+
+  const input_bytes = new TextEncoder().encode("booyakasha");
+  const input_ptr = wasm_module.instance.exports.js_alloc_bytes(
+    input_bytes.length,
+  );
+  const view = new Uint8Array(memory.buffer, input_ptr, input_bytes.length);
+  view.set(input_bytes);
+
+  wasm_module.instance.exports.init(0);
+  const res = wasm_module.instance.exports.update(
+    pack_slice(input_ptr, input_bytes.length),
+  );
+
+  const { ptr, len } = unpack_slice(res);
+
+  console.log(ptr, len);
+  const processedBytes = new Uint8Array(memory.buffer, ptr, len);
+  console.log(processedBytes);
+  const processedString = new TextDecoder().decode(processedBytes);
+  console.log(`Read processed data back: "${processedString}"`);
+
   // try {
   //   wasm.instance.exports._start();
   // } catch (e) {
@@ -118,9 +152,11 @@ function greetPerson(instance, name) {
   const view = new Uint8Array(memory.buffer, input_ptr, input_bytes.length);
   view.set(input_bytes);
 
-  const res = instance.exports.js_greet_person(input_ptr, input_bytes.length);
+  const res = instance.exports.js_greet_person(
+    pack_slice(input_ptr, input_bytes.length),
+  );
 
-  const { ptr, len } = unpackSlice(res);
+  const { ptr, len } = unpack_slice(res);
   const processedBytes = new Uint8Array(memory.buffer, ptr, len);
   const processedString = new TextDecoder().decode(processedBytes);
   console.log(`Read processed data back: "${processedString}"`);
