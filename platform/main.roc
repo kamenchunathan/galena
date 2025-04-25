@@ -6,7 +6,7 @@ platform "galena_platform"
     exposes [Frontend, Backend, Cmd]
     packages {}
     imports []
-    provides [host_init!, host_update!]
+    provides [host_init!, host_update!, host_view!]
 
 import Frontend exposing [Frontend, impl_get_update_fn, impl_get_init_fn]
 import Backend exposing [Backend]
@@ -14,10 +14,13 @@ import Backend exposing [Backend]
 host_init! : I32 => Box FrontendModel
 host_init! = |_| Box.box (impl_get_init_fn frontendApp)
 
-host_update! : Box FrontendModel, Str => Str
+host_update! : Box FrontendModel, Str => Box FrontendModel
 host_update! = |model, msg_bytes|
-    (ret_model, _) = (impl_get_update_fn frontendApp) msg_bytes (Box.unbox model)
-    # "Hello world you intelligent person "
-    "wow"
-# Inspect.to_str ret_model
+    ret_model = (impl_get_update_fn frontendApp) msg_bytes (Box.unbox model)
+    Box.box ret_model
 
+host_view! : Box FrontendModel => { model : Box FrontendModel, view : Str }
+host_view! = |model| {
+    model: model,
+    view: Inspect.to_str (Box.unbox model),
+}

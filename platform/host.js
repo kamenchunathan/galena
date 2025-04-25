@@ -75,9 +75,83 @@ async function roc_web_platform_run(wasm_filename) {
           return 21; // Return EFAULT (Bad address) as a guess
         }
       },
+
+      /**
+       * Writes data from scatter/gather buffers to a file descriptor.
+       *
+       * @param {number} fd - The file descriptor (1 for stdout, 2 for stderr).
+       * @param {number} iovs_ptr - Pointer to the array of iovec structures in Wasm memory.
+       * @param {number} iovs_len - The number of iovec structures.
+       * @param {number} nwritten_ptr - Pointer in Wasm memory to write the number of bytes written.
+       * @returns {number} WASI errno code (0 for success).
+       */
+
+      fd_write: (fd, iovs_ptr, iovs_len, nwritten_ptr) => {
+        // Get direct access to the Wasm memory buffer
+        const memoryBuffer = memory.buffer;
+        // Create a DataView for reading/writing multi-byte values (WASI uses little-endian)
+        const view = new DataView(memoryBuffer);
+        // Use TextDecoder to convert bytes to strings for logging
+        const decoder = new TextDecoder();
+
+        let totalBytesWritten = 0;
+        const iovec_size = 8; // Each iovec is two u32s (ptr + len)
+
+        try {
+          for (let i = 0; i < iovs_len; i++) {
+            const current_iovec_ptr = iovs_ptr + i * iovec_size;
+
+            // Read buf_ptr (u32) and buf_len (u32) from the iovec struct
+            // WASI uses little-endian, hence the 'true' argument
+            const buf_ptr = view.getUint32(current_iovec_ptr, true);
+            const buf_len = view.getUint32(current_iovec_ptr + 4, true);
+
+            if (buf_ptr + buf_len > memoryBuffer.byteLength) {
+              console.error(`fd_write error: iov[${i}] buffer out of bounds.`);
+              // Write 0 bytes written back before erroring
+              view.setUint32(nwritten_ptr, totalBytesWritten, true);
+              return 8; // __WASI_ERRNO_IO (or EFAULT potentially)
+            }
+
+            // Get a view of the data buffer within the Wasm memory
+            const dataBufferView = new Uint8Array(
+              memoryBuffer,
+              buf_ptr,
+              buf_len,
+            );
+
+            try {
+              const text = decoder.decode(dataBufferView);
+              console.log(text);
+            } catch (e) {
+              console.log(
+                `  LOG (fd=${fd}): [Non-UTF8 data: ${Array.from(dataBufferView)
+                  .map((b) => b.toString(16).padStart(2, "0"))
+                  .join("")}]`,
+              );
+            }
+            // --- End Logging ---
+
+            totalBytesWritten += buf_len;
+          }
+
+          // Write the total number of bytes written back to the specified pointer
+          view.setUint32(nwritten_ptr, totalBytesWritten, true);
+          return 0; // __WASI_ERRNO_SUCCESS
+        } catch (e) {
+          console.error("Error during fd_write (JS):", e);
+          // Attempt to write 0 bytes written back in case of error
+          try {
+            view.setUint32(nwritten_ptr, 0, true);
+          } catch (writeError) {
+            console.error("Failed to write nwritten on error:", writeError);
+          }
+          return 8; // __WASI_ERRNO_IO (or another appropriate error)
+        }
+      },
     },
     env: {
-      js_read: function(ptr, size) {
+      js_read: function (ptr, size) {
         const processedBytes = new Uint8Array(memory.buffer, ptr, size);
         read_buf = new TextDecoder().decode(processedBytes);
       },
@@ -113,26 +187,11 @@ async function roc_web_platform_run(wasm_filename) {
 
   // console.log(greetPerson(wasm_module.instance, "Nathan Kamenchu"));
 
-  const input_bytes = new TextEncoder().encode("booyakasha");
-  const input_ptr = wasm_module.instance.exports.js_alloc_bytes(
-    input_bytes.length,
-  );
-  const view = new Uint8Array(memory.buffer, input_ptr, input_bytes.length);
-  view.set(input_bytes);
-
-  wasm_module.instance.exports.init(0);
-  const res = wasm_module.instance.exports.update(
-    pack_slice(input_ptr, input_bytes.length),
-  );
-
-  const { ptr, len } = unpack_slice(res);
-
-  console.log(ptr, len);
-  const processedBytes = new Uint8Array(memory.buffer, ptr, len);
-  console.log(processedBytes);
-  const processedString = new TextDecoder().decode(processedBytes);
-  console.log(`Read processed data back: "${processedString}"`);
-
+  initAndLogView(wasm_module.instance);
+  updateAndLogView(wasm_module.instance, "wow");
+  // updateAndLogView(wasm_module.instance, "Boom");
+  // updateAndLogView(wasm_module.instance, "Wow");
+  // updateAndLogView(wasm_module.instance, "lorem ipsum kdl alpwielfj wl");
   // try {
   //   wasm.instance.exports._start();
   // } catch (e) {
@@ -142,8 +201,20 @@ async function roc_web_platform_run(wasm_filename) {
   //   }
   // }
 }
+function initAndLogView(instance) {
+  const memory = instance.exports.memory;
 
-function greetPerson(instance, name) {
+  instance.exports.init(0);
+
+  const res = instance.exports.view();
+  const { ptr, len } = unpack_slice(res);
+
+  const processedBytes = new Uint8Array(memory.buffer, ptr, len);
+  const processedString = new TextDecoder().decode(processedBytes);
+  console.log(`View: "${processedString}"`);
+}
+
+function updateAndLogView(instance, name) {
   const memory = instance.exports.memory;
   const inputString = name;
 
@@ -152,14 +223,16 @@ function greetPerson(instance, name) {
   const view = new Uint8Array(memory.buffer, input_ptr, input_bytes.length);
   view.set(input_bytes);
 
-  const res = instance.exports.js_greet_person(
-    pack_slice(input_ptr, input_bytes.length),
-  );
+  instance.exports.update(pack_slice(input_ptr, input_bytes.length));
 
+  const res = instance.exports.view();
   const { ptr, len } = unpack_slice(res);
+
+  // console.log(ptr, len);
   const processedBytes = new Uint8Array(memory.buffer, ptr, len);
+  // console.log(processedBytes);
   const processedString = new TextDecoder().decode(processedBytes);
-  console.log(`Read processed data back: "${processedString}"`);
+  console.log(`View: "${processedString}"`);
 }
 
 await roc_web_platform_run("./out/hello_world.wasm");

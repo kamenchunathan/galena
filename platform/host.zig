@@ -92,21 +92,31 @@ pub export fn js_greet_person(name: Slice) Slice {
     return .{ .ptr = result_ptr, .len = greeting.len };
 }
 
-var model: struct { ptr: *RocBox, len: usize } = undefined;
+const ViewResult = extern struct { model: *RocBox, view: RocStr };
+
+var model: *RocBox = undefined;
 extern fn roc__host_init_1_exposed(input: i32) callconv(.C) *RocBox;
-extern fn roc__host_init_1_exposed_size() u64;
-extern fn roc__host_update_1_exposed_generic(ret: *RocStr, model_ptr: *RocBox, msg_bytes: *const RocStr) void;
+extern fn roc__host_update_1_exposed(
+    model_ptr: *const RocBox,
+    msg_bytes: *const RocStr,
+) *RocBox;
 extern fn roc__host_update_1_exposed_size() u64;
+extern fn roc__host_view_1_exposed(model_ptr: *RocBox) ViewResult;
 
 pub export fn init() void {
-    model = .{ .ptr = roc__host_init_1_exposed(0), .len = @intCast(roc__host_init_1_exposed_size()) };
+    model = roc__host_init_1_exposed(0);
 }
 
-pub export fn update(msg_bytes: Slice) Slice {
+pub export fn update(msg_bytes: Slice) void {
     const msg: RocStr = RocStr.fromSlice(msg_bytes.to_zig_slice().?);
-    var ret = RocStr.empty();
-    roc__host_update_1_exposed_generic(&ret, model.ptr, &msg);
-    return Slice.from_zig_slice(ret.asSlice());
+
+    model = roc__host_update_1_exposed(model, &msg);
+}
+
+pub export fn view() Slice {
+    const res = roc__host_view_1_exposed(model);
+    model = res.model;
+    return Slice.from_zig_slice(res.view.asSlice());
 }
 
 // Main

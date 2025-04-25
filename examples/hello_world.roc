@@ -13,18 +13,17 @@ import galena.Frontend as Frontend exposing [Frontend]
 import galena.Cmd as Cmd
 import galena.View as View
 
-FrontendModel : Str
+FrontendModel : { counter : I32 }
 BackendModel : {}
-
 
 ToFrontendMsg : []
 ToBackendMsg : []
-FrontendMsg: Str
+FrontendMsg : Str
 
 frontendApp : Frontend FrontendModel FrontendMsg ToFrontendMsg ToBackendMsg
 frontendApp = Frontend.frontend {
-    init: "Rando",
-    update: |_, model| (model, Cmd.none),
+    init: { counter: 42069 },
+    update: |_, model| { counter: model.counter + 1 },
     view: |_| View.text "wow",
     updateFromBackend: |_| Cmd.none,
 }
