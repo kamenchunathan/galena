@@ -8,8 +8,9 @@ platform "galena_platform"
     imports []
     provides [host_init!, host_update!, host_view!]
 
-import Frontend exposing [Frontend, impl_get_update_fn, impl_get_init_fn]
+import Frontend exposing [Frontend, impl_get_update_fn, impl_get_init_fn, impl_get_view_fn]
 import Backend exposing [Backend]
+import View
 
 host_init! : I32 => Box FrontendModel
 host_init! = |_| Box.box (impl_get_init_fn frontendApp)
@@ -22,5 +23,5 @@ host_update! = |model, msg_bytes|
 host_view! : Box FrontendModel => { model : Box FrontendModel, view : Str }
 host_view! = |model| {
     model: model,
-    view: Inspect.to_str (Box.unbox model),
+    view: (impl_get_view_fn frontendApp) (Box.unbox model) |> View.to_str,
 }

@@ -189,9 +189,10 @@ async function roc_web_platform_run(wasm_filename) {
 
   initAndLogView(wasm_module.instance);
   updateAndLogView(wasm_module.instance, "wow");
-  // updateAndLogView(wasm_module.instance, "Boom");
-  // updateAndLogView(wasm_module.instance, "Wow");
-  // updateAndLogView(wasm_module.instance, "lorem ipsum kdl alpwielfj wl");
+  updateAndLogView(wasm_module.instance, "wow");
+  updateAndLogView(wasm_module.instance, "Boom");
+  updateAndLogView(wasm_module.instance, "Wow");
+  updateAndLogView(wasm_module.instance, "lorem ipsum kdl alpwielfj wl");
   // try {
   //   wasm.instance.exports._start();
   // } catch (e) {
@@ -232,7 +233,7 @@ function updateAndLogView(instance, name) {
   const processedBytes = new Uint8Array(memory.buffer, ptr, len);
   // console.log(processedBytes);
   const processedString = new TextDecoder().decode(processedBytes);
-  console.log(`View: "${processedString}"`);
+  console.log(`${processedString}`);
 }
 
-await roc_web_platform_run("./out/hello_world.wasm");
+await roc_web_platform_run("./out/greet.wasm");
