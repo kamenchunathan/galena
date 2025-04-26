@@ -151,7 +151,7 @@ async function roc_web_platform_run(wasm_filename) {
       },
     },
     env: {
-      js_read: function (ptr, size) {
+      js_read: function(ptr, size) {
         const processedBytes = new Uint8Array(memory.buffer, ptr, size);
         read_buf = new TextDecoder().decode(processedBytes);
       },
@@ -202,6 +202,7 @@ async function roc_web_platform_run(wasm_filename) {
   //   }
   // }
 }
+
 function initAndLogView(instance) {
   const memory = instance.exports.memory;
 
