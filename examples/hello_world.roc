@@ -16,7 +16,7 @@ import galena.View as View
 FrontendModel : { counter : I32 }
 BackendModel : {}
 
-ToFrontendMsg : []
+ToFrontendMsg : {}
 ToBackendMsg : {}
 FrontendMsg : Str
 

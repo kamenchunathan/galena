@@ -74,7 +74,7 @@ pub async fn run_server() {
     let listener = TcpListener::bind("0.0.0.0:3000")
         .await
         .expect("Unable to bind to port");
-    tracing::info!("listening on {}", listener.local_addr().unwrap());
+    info!("listening on {}", listener.local_addr().unwrap());
 
     axum::serve(
         listener,
