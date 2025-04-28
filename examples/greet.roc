@@ -16,8 +16,8 @@ import galena.View as View
 FrontendModel : Dict Str I32
 BackendModel : {}
 
-ToFrontendMsg : []
-ToBackendMsg : []
+ToFrontendMsg : {}
+ToBackendMsg : {}
 
 FrontendMsg : Str
 

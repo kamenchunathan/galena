@@ -2,10 +2,7 @@ build_dir := 'out'
 
 roc_bin :=  "$ROC_SRC_CODE_PATH/target/release/roc"
 examples_dir := 'examples/'
-dist_dir := "dist"
-frontend_pkg := "frontend"
-patch_script := "./scripts/patch_triple.sh"
-
+frontend_dist_dir := "./frontend/dist"
 
 
 alias b := build
@@ -20,26 +17,21 @@ gen-glue:
     roc glue "$ROC_SRC_CODE_PATH/crates/glue/src/ZigGlue.roc" platform/glue platform/main.roc
 
 build:
+    just build-frontend
+    just build-host
     just build-platform
     just build-examples
 
-build-wasm file_path:
+build-frontend:
     #!/usr/bin/env bash
-    set -euxo pipefail
+    cd frontend
+    pnpm build
 
-    mkdir -p {{ build_dir}}
-    file_path=$(basename -s .roc {{ file_path }} )
-
-    {{ roc_bin }} build \
-        --target wasm32 {{ file_path }} \
-        --output "{{build_dir}}/$file_path.wasm"
-
-    wasm2wat "{{build_dir}}/$file_path.wasm" \
-        -o "{{build_dir}}/$file_path.wat"
-
-    
 build-platform:
-    roc build.roc
+    roc ./scripts/build.roc
+
+build-host:
+    cargo build --release
 
 build-examples:
     #!/usr/bin/env bash

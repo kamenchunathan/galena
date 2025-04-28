@@ -7,10 +7,10 @@ use std::{
 
 use anyhow::{self, Context, Result};
 use clap::{Parser, Subcommand};
+use include_dir::{include_dir, Dir};
 use tracing::info;
 
-const INDEX_HTML: &str = include_str!("../../../frontend/dist/index.html");
-const INDEX_JS: &str = include_str!("../../../frontend/dist/assets/index-CZVMipa3.js");
+static FRONTEND_DIR: Dir = include_dir!("$FRONTEND_DIST_DIR");
 
 const GALENA_DIR: &str = ".galena";
 
@@ -25,20 +25,13 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     match cli.action {
         Action::Build { input } => {
-            dbg!(build_wasm_cmd(
-                &roc_bin,
-                build_dir.to_str().unwrap(),
-                &input,
-            )?)
-            .status()
-            .context("Unable to spawn roc build command")?;
-
+            // Create dist directory and copy all frontend assets
             create_directory_if_not_exists(&dist_dir)?;
+            copy_frontend_to_dist(&dist_dir)?;
 
-            fs::write(Path::new(&dist_dir).join("index.html"), INDEX_HTML)
-                .context("Failed to write index.html to dist directory")?;
-            fs::write(Path::new(&dist_dir).join("index.js"), INDEX_JS)
-                .context("Failed to write index.js to dist directory")?;
+            build_wasm_cmd(&roc_bin, build_dir.to_str().unwrap(), &input)?
+                .status()
+                .context("Unable to spawn roc build command")?;
 
             // Copy WASM bundle to dist directory
             let input_file_name =
@@ -72,20 +65,72 @@ fn main() -> Result<(), Box<dyn Error>> {
             .context("Unable to spawn roc build command for backend")?;
 
             // Run the backend binary with DIST_DIR environment variable
-            let dist_dir = fs::canonicalize("dist")
-                .context("Failed to get absolute path to dist directory")?;
+            let dist_dir_abs = fs::canonicalize(&dist_dir).context(format!(
+                "Failed to get absolute path to {}",
+                dist_dir.display()
+            ))?;
 
             let mut run_cmd = Command::new(&output_binary);
-            run_cmd.env("DIST_DIR", dist_dir.to_str().unwrap());
+            run_cmd.env("DIST_DIR", dist_dir_abs.to_str().unwrap());
 
-            println!(
-                "Running backend with DIST_DIR={}",
-                dist_dir.to_str().unwrap()
-            );
+            info!("Running backend with DIST_DIR={}", dist_dir_abs.display());
             run_cmd.status().context(format!(
                 "Failed to execute backend binary {}",
-                output_binary.to_str().unwrap()
+                output_binary.display()
             ))?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Recursively copy frontend assets to the dist directory while preserving structure
+fn copy_frontend_to_dist(dist_dir: &Path) -> Result<()> {
+    // Clear the dist directory first to prevent stale files
+    if dist_dir.exists() {
+        fs::remove_dir_all(dist_dir)?;
+        fs::create_dir_all(dist_dir)?;
+    }
+
+    for entry in dbg!(FRONTEND_DIR.entries()) {
+        let dest_path = dist_dir.join(entry.path());
+
+        match entry {
+            include_dir::DirEntry::Dir(dir) => {
+                let dir_path = dist_dir.join(dir.path());
+                fs::create_dir_all(&dir_path).context(format!(
+                    "Failed to create directory: {}",
+                    dir_path.display()
+                ))?;
+
+                // Recursively handle subdirectories
+                for subentry in dir.entries() {
+                    copy_dir_entry(subentry, &dist_dir)?;
+                }
+            }
+            include_dir::DirEntry::File(file) => {
+                let file_contents = file.contents();
+                fs::write(&dest_path, file_contents)
+                    .context(format!("Failed to write file: {}", dest_path.display()))?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn copy_dir_entry(entry: &include_dir::DirEntry, dist_dir: &Path) -> Result<()> {
+    match entry {
+        include_dir::DirEntry::Dir(dir) => {
+            fs::create_dir_all(dir.path())?;
+
+            for subentry in dir.entries() {
+                copy_dir_entry(subentry, dist_dir)?;
+            }
+        }
+        include_dir::DirEntry::File(file) => {
+            fs::write(dist_dir.join(file.path()), file.contents())
+                .context(format!("Unable to write to file {}", file.path().display()))?;
         }
     }
 
