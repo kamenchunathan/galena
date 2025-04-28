@@ -1,12 +1,56 @@
 use core::ffi::c_void;
-use roc_std::RocStr;
+use roc_std::{RocBox, RocList, RocStr};
 
-extern "C" {
-    #[link_name = "roc__mainForHost_1_exposed"]
-    pub fn roc_main(_: i32) -> i32;
+#[derive(Clone, Debug)]
+pub struct Model {
+    model: RocBox<()>,
+}
 
-    // #[link_name = "roc__init_for_host_1_exposed_size"]
-    // fn size() -> i64;
+impl Model {
+    // From the basic webserver platform
+    pub unsafe fn init(model: RocBox<()>) -> Self {
+        // Set the refcount to constant to ensure this never gets freed.
+        // This also makes it thread-safe.
+        let data_ptr: *mut usize = std::mem::transmute(model);
+        let rc_ptr = data_ptr.offset(-1);
+        let max_refcount = 0;
+        *rc_ptr = max_refcount;
+
+        Self {
+            model: std::mem::transmute::<*mut usize, roc_std::RocBox<()>>(data_ptr),
+        }
+    }
+}
+
+unsafe impl Send for Model {}
+unsafe impl Sync for Model {}
+
+pub fn call_roc_backend_init() -> RocBox<()> {
+    extern "C" {
+        #[link_name = "roc__backend_init_for_host_1_exposed"]
+        pub fn caller() -> RocBox<()>;
+
+        // #[link_name = "roc__backend_init_for_host_1_exposed_size"]
+        // fn size() -> i64;
+    }
+
+    unsafe { caller() }
+}
+
+pub fn call_roc_backend_update(client_id: &str, session_id: &str, msg: &str) {
+    extern "C" {
+        #[link_name = "roc__backend_update_for_host_1_exposed"]
+        pub fn caller(client_id: RocStr, session_id: RocStr, msg: RocStr);
+
+        // #[link_name = "roc__backend_init_for_host_1_exposed_size"]
+        // fn size() -> i64;
+    }
+
+    let client_id = RocStr::from(client_id);
+    let session_id = RocStr::from(session_id);
+    let msg = RocStr::from(msg);
+
+    unsafe { caller(client_id, session_id, msg) }
 }
 
 #[no_mangle]

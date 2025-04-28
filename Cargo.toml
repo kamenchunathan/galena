@@ -3,7 +3,6 @@ members = [
   "crates/roc_host",
   "crates/roc_host_bin",
   "crates/roc_host_lib",
-  "crates/backend",
   "crates/galena_cli",
 ]
 resolver = "2"
@@ -16,3 +15,4 @@ codegen-units = 1
 [workspace.dependencies]
 # TODO: Add a revision here
 roc_std = { git = "https://github.com/roc-lang/roc.git" }
+anyhow = "1.0.98"

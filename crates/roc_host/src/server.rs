@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::env;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
@@ -23,16 +24,19 @@ use tower_http::{
     services::{ServeDir, ServeFile},
     trace::{DefaultMakeSpan, TraceLayer},
 };
-use tracing::{info, instrument};
+use tracing::{debug, error, info, instrument};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
+
+use crate::roc::{self, call_roc_backend_init};
 
 #[derive(Debug, Clone)]
 struct AppState {
     clients: Arc<Mutex<HashMap<String, SplitSink<WebSocket, Message>>>>,
+    roc_model: Arc<Mutex<roc::Model>>,
 }
 
-pub async fn run(dist_dir: impl AsRef<Path>) {
+pub async fn run_server() {
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
@@ -42,11 +46,19 @@ pub async fn run(dist_dir: impl AsRef<Path>) {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
+    let dist_dir = env::var("DIST_DIR").expect("DIST_DIR is not defined");
+
+    debug!("Initializing roc model");
+    let roc_model = unsafe {
+        let boxed_model = call_roc_backend_init();
+        roc::Model::init(boxed_model)
+    };
+
     let router = Router::new()
         .route(
             "/",
             get_service(ServeFile::new_with_mime(
-                dist_dir.as_ref().join("index.html"),
+                Path::new(&dist_dir).join("index.html"),
                 &mime::TEXT_HTML,
             )),
         )
@@ -56,6 +68,7 @@ pub async fn run(dist_dir: impl AsRef<Path>) {
         .layer(TraceLayer::new_for_http().make_span_with(DefaultMakeSpan::default()))
         .with_state(AppState {
             clients: Arc::new(Mutex::new(HashMap::new())),
+            roc_model: Arc::new(Mutex::new(roc_model)),
         });
 
     let listener = TcpListener::bind("0.0.0.0:3000")
@@ -78,7 +91,7 @@ async fn ws_handler(
     cookies: Cookies,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
 ) -> impl IntoResponse {
-    info!("state {:?}", state);
+    info!("Websocket connection requested");
     // On reconnect check for a session id or create one
     let session_id = match cookies.get("sessionid") {
         Some(sid) => sid.value().to_string(),
@@ -104,7 +117,7 @@ async fn ws_handler(
 }
 
 async fn handle_websocket_connection(
-    AppState { clients }: AppState,
+    AppState { clients, .. }: AppState,
     ws: WebSocket,
     session_id: String,
     client_id: String,
@@ -117,29 +130,19 @@ async fn handle_websocket_connection(
     }
 
     // Recieve messages
-    while let Some(Ok(Message::Text(msg))) = stream.next().await {
-        let clients = Arc::clone(&clients);
-        let session_id = session_id.clone();
-        let client_id = client_id.clone();
-
-        tokio::spawn(async move {
-            if let Some(msg) = call_roc_update_from_frontend(session_id, client_id.clone(), msg) {
-                let mut clients = clients.lock().await;
-                if let Some(stream) = clients.get_mut(&client_id) {
-                    stream
-                        .send(msg)
-                        .await
-                        .expect("unable to send message to websocket");
-                }
+    loop {
+        match stream.next().await {
+            Some(Ok(Message::Text(msg))) => {
+                let session_id = session_id.clone();
+                let client_id = client_id.clone();
+                tokio::spawn(
+                    async move { roc::call_roc_backend_update(&session_id, &client_id, &msg) },
+                );
             }
-        });
+
+            e => error!(?e, "Unhandled message"),
+        }
     }
 }
 
-fn call_roc_update_from_frontend(
-    _sessiond_id: String,
-    _client_id: String,
-    _msg: String,
-) -> Option<Message> {
-    None
-}
+// TODO: Write effect functions that allow for messages
