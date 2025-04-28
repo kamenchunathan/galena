@@ -62,6 +62,7 @@
             # node
             nodejs_23
             nodePackages.pnpm
+            typescript
           ];
 
 

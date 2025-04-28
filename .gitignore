@@ -10,3 +10,6 @@ dist/
 tmp/
 .direnv
 .zig-cache/
+
+examples/*
+!examples/*.roc

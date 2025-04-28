@@ -28,7 +28,7 @@ cli_parser =
     Opt.maybe_str({ short: "p", long: "roc", help: "Path to the roc executable. Can be just `roc` or a full path." })
     |> Cli.finish(
         {
-            name: "galena builder",
+            name: "galena-builder",
             version: "",
             authors: ["Nathan Kamenchu <https://github.com/kamenchunathan>"],
             description: "",
@@ -81,7 +81,6 @@ build_stub_app_lib! = |roc_cmd, stub_lib_path|
     info!("Building stubbed app shared library ...")?
 
     Cmd.exec!(roc_cmd, ["build", "--lib", "platform/libapp.roc", "--output", stub_lib_path, "--optimize"])
-    |> Result.map_err(ErrBuildingAppStub)
 
 get_rust_target_folder! : {} => Result Str _
 get_rust_target_folder! = |{}|

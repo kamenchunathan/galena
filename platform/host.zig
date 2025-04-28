@@ -57,7 +57,7 @@ export fn roc_dealloc(c_ptr: *anyopaque, alignment: u32) callconv(.C) void {
 }
 
 // Exports
-pub export fn js_alloc_bytes(size: usize) ?[*]const u8 {
+pub export fn js_alloc(size: usize) ?[*]const u8 {
     const ptr = malloc(size) orelse return null;
     return @as([*]const u8, @ptrCast(@alignCast(ptr)));
 }
@@ -119,7 +119,10 @@ pub export fn view() Slice {
     return Slice.from_zig_slice(res.view.asSlice());
 }
 
-// Main
+pub export fn handle_ws_message(ws_msg: Slice) void {
+    _ = ws_msg;
+}
+
 pub export fn main() u8 {
     return 0;
 }

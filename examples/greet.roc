@@ -49,7 +49,11 @@ frontendApp = Frontend.frontend {
 
 backendApp : Backend BackendModel {} ToFrontendMsg ToBackendMsg
 backendApp = Backend.backend {
-    init: {},
-    update: |_, model| (model, Cmd.none),
-    updateFromFrontend: |_| Cmd.none,
+    init!: {},
+    update!: |_, model| model,
+    update_from_frontend: update_from_frontend,
 }
+
+update_from_frontend : Str, Str, toBackendMsg -> {}
+update_from_frontend = |_, _, _| {}
+

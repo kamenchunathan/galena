@@ -5,6 +5,8 @@ edition = "2021"
 
 [dependencies]
 roc_std.workspace = true
+anyhow.workspace = true
+
 libc = "0.2"
 axum = { version = "0.7.9", features = ["macros", "ws"] }
 tokio-tungstenite = "0.26.1"

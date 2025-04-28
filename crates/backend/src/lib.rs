@@ -1,3 +1,8 @@
+use std::collections::HashMap;
+use std::net::SocketAddr;
+use std::path::Path;
+use std::sync::Arc;
+
 use axum::extract::ws::{Message, WebSocket};
 use axum::extract::{ConnectInfo, State, WebSocketUpgrade};
 use axum::response::IntoResponse;
@@ -11,9 +16,6 @@ use futures::stream::SplitSink;
 use futures::{SinkExt, StreamExt};
 use mime;
 use rand::{self, RngCore};
-use std::collections::HashMap;
-use std::net::SocketAddr;
-use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 use tower_cookies::{CookieManagerLayer, Cookies};
@@ -30,7 +32,7 @@ struct AppState {
     clients: Arc<Mutex<HashMap<String, SplitSink<WebSocket, Message>>>>,
 }
 
-pub async fn run() {
+pub async fn run(dist_dir: impl AsRef<Path>) {
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
@@ -40,18 +42,16 @@ pub async fn run() {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let asset_server = ServeDir::new("crates/roc_host/static/");
-
     let router = Router::new()
         .route(
             "/",
             get_service(ServeFile::new_with_mime(
-                "crates/roc_host/static/index.html",
+                dist_dir.as_ref().join("index.html"),
                 &mime::TEXT_HTML,
             )),
         )
         .route("/ws", any(ws_handler))
-        .nest_service("/static", asset_server)
+        .fallback_service(ServeDir::new(dist_dir))
         .layer(CookieManagerLayer::new())
         .layer(TraceLayer::new_for_http().make_span_with(DefaultMakeSpan::default()))
         .with_state(AppState {
