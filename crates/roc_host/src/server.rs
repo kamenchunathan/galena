@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::env;
 use std::net::SocketAddr;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use axum::extract::ws::{Message, WebSocket};
 use axum::extract::{ConnectInfo, State, WebSocketUpgrade};
@@ -14,7 +14,7 @@ use base64::engine::{GeneralPurpose, GeneralPurposeConfig};
 use base64::Engine;
 use cookie::Cookie;
 use futures::stream::SplitSink;
-use futures::{SinkExt, StreamExt};
+use futures::StreamExt;
 use mime;
 use rand::{self, RngCore};
 use tokio::net::TcpListener;
@@ -33,8 +33,9 @@ use crate::roc::{self, call_roc_backend_init};
 #[derive(Debug, Clone)]
 struct AppState {
     clients: Arc<Mutex<HashMap<String, SplitSink<WebSocket, Message>>>>,
-    roc_model: Arc<Mutex<roc::Model>>,
 }
+
+static ROC_MODEL: OnceLock<roc::Model> = OnceLock::new();
 
 pub async fn run_server() {
     tracing_subscriber::registry()
@@ -53,6 +54,9 @@ pub async fn run_server() {
         let boxed_model = call_roc_backend_init();
         roc::Model::init(boxed_model)
     };
+    ROC_MODEL
+        .set(roc_model)
+        .expect("Model is only initialized once at start");
 
     let router = Router::new()
         .route(
@@ -68,7 +72,6 @@ pub async fn run_server() {
         .layer(TraceLayer::new_for_http().make_span_with(DefaultMakeSpan::default()))
         .with_state(AppState {
             clients: Arc::new(Mutex::new(HashMap::new())),
-            roc_model: Arc::new(Mutex::new(roc_model)),
         });
 
     let listener = TcpListener::bind("0.0.0.0:3000")
@@ -117,7 +120,7 @@ async fn ws_handler(
 }
 
 async fn handle_websocket_connection(
-    AppState { clients, .. }: AppState,
+    AppState { clients }: AppState,
     ws: WebSocket,
     session_id: String,
     client_id: String,
@@ -135,9 +138,13 @@ async fn handle_websocket_connection(
             Some(Ok(Message::Text(msg))) => {
                 let session_id = session_id.clone();
                 let client_id = client_id.clone();
-                tokio::spawn(
-                    async move { roc::call_roc_backend_update(&session_id, &client_id, &msg) },
-                );
+                tokio::spawn(async move {
+                    let roc_model = ROC_MODEL
+                        .get()
+                        .expect("Model was not initialized at startup")
+                        .clone();
+                    roc::call_roc_backend_update(roc_model, &session_id, &client_id, &msg)
+                });
             }
 
             e => error!(?e, "Unhandled message"),

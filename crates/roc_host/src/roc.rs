@@ -37,20 +37,20 @@ pub fn call_roc_backend_init() -> RocBox<()> {
     unsafe { caller() }
 }
 
-pub fn call_roc_backend_update(client_id: &str, session_id: &str, msg: &str) {
+pub fn call_roc_backend_update(model: Model, client_id: &str, session_id: &str, msg: &str) {
     extern "C" {
-        #[link_name = "roc__backend_update_for_host_1_exposed"]
-        pub fn caller(client_id: RocStr, session_id: RocStr, msg: RocStr);
+        #[link_name = "roc__backend_update_for_host_1_exposed_generic"]
+        pub fn caller(model: RocBox<()>, client_id: RocStr, session_id: RocStr, msg: RocStr);
 
-        // #[link_name = "roc__backend_init_for_host_1_exposed_size"]
-        // fn size() -> i64;
+        #[link_name = "roc__backend_init_for_host_1_exposed_size"]
+        fn size() -> i64;
     }
 
     let client_id = RocStr::from(client_id);
     let session_id = RocStr::from(session_id);
     let msg = RocStr::from(msg);
 
-    unsafe { caller(client_id, session_id, msg) }
+    unsafe { caller(model.model, client_id, session_id, msg) }
 }
 
 #[no_mangle]
