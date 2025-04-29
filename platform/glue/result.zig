@@ -12,7 +12,7 @@ pub fn RocResultPayload(comptime T: type, comptime E: type) type {
     };
 }
 
-const RocResultTag = enum(u8) {
+pub const RocResultTag = enum(u8) {
     RocErr = 0,
     RocOk = 1,
 };

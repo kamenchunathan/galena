@@ -147,6 +147,12 @@ async fn handle_websocket_connection(
                 });
             }
 
+            None => {
+                let mut clients = clients.lock().await;
+                clients.remove(&client_id);
+                break;
+            }
+
             e => error!(?e, "Unhandled message"),
         }
     }

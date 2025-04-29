@@ -42,8 +42,8 @@ pub fn call_roc_backend_update(model: Model, client_id: &str, session_id: &str, 
         #[link_name = "roc__backend_update_for_host_1_exposed_generic"]
         pub fn caller(model: RocBox<()>, client_id: RocStr, session_id: RocStr, msg: RocStr);
 
-        #[link_name = "roc__backend_init_for_host_1_exposed_size"]
-        fn size() -> i64;
+        // #[link_name = "roc__backend_init_for_host_1_exposed_size"]
+        // fn size() -> i64;
     }
 
     let client_id = RocStr::from(client_id);
@@ -51,6 +51,12 @@ pub fn call_roc_backend_update(model: Model, client_id: &str, session_id: &str, 
     let msg = RocStr::from(msg);
 
     unsafe { caller(model.model, client_id, session_id, msg) }
+}
+
+#[no_mangle]
+pub extern "C" fn roc_fx_send_to_backend_impl(_: &RocStr) {
+    // This should only be called by the frontend
+    panic!("Should only be called from frontend")
 }
 
 #[no_mangle]

@@ -1,14 +1,14 @@
 module [BackendInternal, backend_, inner]
 
-import Json
+import json.Json
 
 BackendInternal model msg toFrontendMsg toBackendMsg := {
     init! : model,
-    update! : msg, model => model,
+    update! : msg, model => (model, toFrontendMsg),
     update_from_frontend : Str, Str, List U8 -> msg,
 }
 
-backend_ : { init! : model, update! : msg, model => model, update_from_frontend : Str, Str, toBackendMsg -> msg } -> BackendInternal model msg toFrontendMsg toBackendMsg where toBackendMsg implements Decoding
+backend_ : { init! : model, update! : msg, model => (model, toFrontendMsg), update_from_frontend : Str, Str, toBackendMsg -> msg } -> BackendInternal model msg toFrontendMsg toBackendMsg where toBackendMsg implements Decoding
 backend_ = |backend_config|
     @BackendInternal {
         init!: backend_config.init!,

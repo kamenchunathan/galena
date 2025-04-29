@@ -8,8 +8,10 @@ out/
 build
 dist/
 tmp/
+mpt/
 .direnv
 .zig-cache/
 
+.galena
 examples/*
 !examples/*.roc

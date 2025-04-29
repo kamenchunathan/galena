@@ -2,11 +2,13 @@ const builtin = @import("builtin");
 const std = @import("std");
 const str = @import("glue/str.zig");
 const list = @import("glue/list.zig");
+const result = @import("glue/result.zig");
 
 const Allocator = std.mem.Allocator;
 const RocBox = opaque {};
 const RocStr = str.RocStr;
 const RocList = list.RocList;
+const RocResult = result.RocResult;
 
 const Slice = packed struct {
     ptr: ?[*]const u8,
@@ -92,37 +94,50 @@ pub export fn js_greet_person(name: Slice) Slice {
     return .{ .ptr = result_ptr, .len = greeting.len };
 }
 
+// Js env functions
+extern fn js_send_to_backend(slice: Slice) void;
+
 const ViewResult = extern struct { model: *RocBox, view: RocStr };
 
 var model: *RocBox = undefined;
-extern fn roc__host_init_1_exposed(input: i32) callconv(.C) *RocBox;
-extern fn roc__host_update_1_exposed(
+extern fn roc__frontend_host_init_1_exposed(input: i32) callconv(.C) *RocBox;
+extern fn roc__frontend_host_update_1_exposed(
     model_ptr: *const RocBox,
     msg_bytes: *const RocStr,
 ) *RocBox;
-extern fn roc__host_update_1_exposed_size() u64;
-extern fn roc__host_view_1_exposed(model_ptr: *RocBox) ViewResult;
+extern fn roc__frontend_host_update_1_exposed_size() u64;
+extern fn roc__frontend_host_view_1_exposed(model_ptr: *RocBox) ViewResult;
+extern fn roc__frontend_receive_ws_message_for_host_1_exposed(
+    model_ptr: *const RocBox,
+    msg: *const RocStr,
+) *RocBox;
 
 pub export fn init() void {
-    model = roc__host_init_1_exposed(0);
+    model = roc__frontend_host_init_1_exposed(0);
 }
 
 pub export fn update(msg_bytes: Slice) void {
     const msg: RocStr = RocStr.fromSlice(msg_bytes.to_zig_slice().?);
 
-    model = roc__host_update_1_exposed(model, &msg);
+    model = roc__frontend_host_update_1_exposed(model, &msg);
 }
 
 pub export fn view() Slice {
-    const res = roc__host_view_1_exposed(model);
+    const res = roc__frontend_host_view_1_exposed(model);
     model = res.model;
     return Slice.from_zig_slice(res.view.asSlice());
 }
 
 pub export fn handle_ws_message(ws_msg: Slice) void {
-    _ = ws_msg;
+    const msg_str = RocStr.fromSlice(Slice.to_zig_slice(ws_msg) orelse return);
+    model = roc__frontend_receive_ws_message_for_host_1_exposed(model, &msg_str);
 }
 
 pub export fn main() u8 {
     return 0;
+}
+
+// Effects
+export fn roc_fx_send_to_backend_impl(msg_bytes: *RocStr) callconv(.C) void {
+    js_send_to_backend(Slice.from_zig_slice(msg_bytes.asSlice()));
 }
