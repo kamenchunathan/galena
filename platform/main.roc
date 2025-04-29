@@ -3,8 +3,10 @@ platform "galena_platform"
         frontendApp : Frontend FrontendModel frontendMsg ToFrontendMsg ToBackendMsg,
         backendApp : Backend BackendModel backendMsg ToFrontendMsg ToBackendMsg,
     }
-    exposes [Frontend, Backend, Cmd]
-    packages {}
+    exposes [Frontend, Backend]
+    packages {
+        json: "https://github.com/lukewilliamboswell/roc-json/releases/download/0.12.0/1trwx8sltQ-e9Y2rOB4LWUWLS_sFVyETK8Twl0i9qpw.tar.gz",
+    }
     imports []
     provides [
         host_init!,
