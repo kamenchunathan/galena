@@ -1,5 +1,5 @@
 import { ReconnectingWebSocket } from "./ws";
-import { packSlice } from "./util";
+import { packSlice, unpackSlice } from "./util";
 
 interface HostExports extends WebAssembly.Exports {
   handle_ws_message: (packedSlice: BigInt) => null;
@@ -30,6 +30,7 @@ export class Application {
         roc_dbg: (_loc: any, _msg: any) => {
           throw "Roc dbg not supported!";
         },
+        sendToBackend: this.sendToBackend,
       },
     };
 
@@ -48,7 +49,9 @@ export class Application {
   }
 
   async initializeWs(wsUrl: string) {
-    this.ws = new ReconnectingWebSocket(wsUrl);
+    this.ws = new ReconnectingWebSocket(wsUrl, {
+      onMessage: this.handleIncomingWsMessage,
+    });
     this.ws?.connect();
   }
 
@@ -68,6 +71,28 @@ export class Application {
     this.wasmExports?.handle_ws_message(packSlice(inputPtr, data.byteLength));
 
     // TODO: deallocate inputPtr
+  }
+
+  sendToBackend(slice: number) {
+    const { ptr, len } = unpackSlice(slice);
+
+    if (!this.memory) {
+      console.error(
+        "Cannot send to backend: WebAssembly memory not initialized",
+      );
+      return false;
+    }
+
+    try {
+      const dataView = new Uint8Array(this.memory.buffer, ptr, len);
+      const dataCopy = new Uint8Array(dataView);
+      this.ws?.sendMessageToWebSocket(new TextDecoder().decode(dataCopy));
+
+      return true;
+    } catch (error) {
+      console.error("Error sending data to backend:", error);
+      return false;
+    }
   }
 }
 

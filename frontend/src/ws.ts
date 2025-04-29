@@ -1,3 +1,12 @@
+interface WsArgs {
+  onOpen?: ((_: Event) => void) | null;
+  onMessage?: ((_: MessageEvent) => void) | null;
+  onClose?: (() => void) | null;
+  reconnectInterval?: number;
+  maxReconnectAttempts?: number;
+  maxBufferSize?: number;
+}
+
 export class ReconnectingWebSocket {
   wsUrl: string;
 
@@ -15,25 +24,29 @@ export class ReconnectingWebSocket {
   sendBuffer: (ArrayBuffer | string)[];
 
   // Callbacks
-  onOpen: ((_: Event) => null) | null;
-  onMessage: ((_: MessageEvent) => null) | null;
-  onClose: (() => null) | null;
+  onOpen: ((_: Event) => void) | null = null;
+  onMessage: ((messageEvent: MessageEvent) => void) | null = null;
+  onClose: (() => void) | null = null;
 
   constructor(
     wsUrl: string,
-    onOpen = null,
-    onMessage = null,
-    onClose = null,
-    reconnectInterval = 2000,
-    maxReconnectAttempts = 200,
-    maxBufferSize = 100,
+    {
+      onOpen,
+      onMessage,
+      onClose,
+      reconnectInterval,
+      maxReconnectAttempts,
+      maxBufferSize,
+    }: WsArgs,
   ) {
     this.wsUrl = wsUrl;
 
     // Configuration
-    this.reconnectInterval = reconnectInterval;
-    this.maxReconnectAttempts = maxReconnectAttempts;
-    this.maxBufferSize = maxBufferSize;
+    this.reconnectInterval = reconnectInterval ? reconnectInterval : 100;
+    this.maxReconnectAttempts = maxReconnectAttempts
+      ? maxReconnectAttempts
+      : 100;
+    this.maxBufferSize = maxBufferSize ? maxBufferSize : 100;
 
     // State
     this.websocket = null;
@@ -43,9 +56,9 @@ export class ReconnectingWebSocket {
     this.reconnectTimer = null;
     this.sendBuffer = [];
 
-    this.onOpen = onOpen;
-    this.onMessage = onMessage;
-    this.onClose = onClose;
+    if (onOpen) this.onOpen = onOpen;
+    if (onMessage) this.onMessage = onMessage;
+    if (onClose) this.onClose = onClose;
   }
 
   connect() {
