@@ -25,61 +25,104 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     match cli.action {
         Action::Build { input } => {
-            // Create dist directory and copy all frontend assets
-            create_directory_if_not_exists(&dist_dir)?;
-            copy_frontend_to_dist(&dist_dir)?;
-
-            build_wasm_cmd(&roc_bin, build_dir.to_str().unwrap(), &input)?
-                .status()
-                .context("Unable to spawn roc build command")?;
-
-            // Copy WASM bundle to dist directory
-            let input_file_name =
-                Path::new(Path::new(&input).file_stem().unwrap()).with_extension("wasm");
-            let source_wasm = build_dir.join(input_file_name);
-            let dest_wasm = dist_dir.join("app.wasm");
-            fs::copy(&source_wasm, &dest_wasm).context(format!(
-                "Failed to copy WASM from {} to {}",
-                source_wasm.to_str().unwrap(),
-                dest_wasm.to_str().unwrap()
-            ))?;
-
-            info!(
-                "Build completed. Files written to {}.",
-                dist_dir.to_str().unwrap()
-            );
+            execute_build(roc_bin, &build_dir, &dist_dir, &input)?;
         }
         Action::Run { input } => {
-            create_directory_if_not_exists(&build_dir)?;
+            // First build the app (including WASM), since we need the dist directory
+            execute_build(roc_bin, &build_dir, &dist_dir, &input)?;
 
-            let input_file_name = Path::new(&input).file_stem().unwrap().to_str().unwrap();
-            let output_binary = build_dir.join(input_file_name);
-
-            build_backend_cmd(
-                &roc_bin,
-                build_dir.to_str().unwrap(),
-                &input,
-                output_binary.to_str().unwrap(),
-            )?
-            .status()
-            .context("Unable to spawn roc build command for backend")?;
-
-            // Run the backend binary with DIST_DIR environment variable
-            let dist_dir_abs = fs::canonicalize(&dist_dir).context(format!(
-                "Failed to get absolute path to {}",
-                dist_dir.display()
-            ))?;
-
-            let mut run_cmd = Command::new(&output_binary);
-            run_cmd.env("DIST_DIR", dist_dir_abs.to_str().unwrap());
-
-            info!("Running backend with DIST_DIR={}", dist_dir_abs.display());
-            run_cmd.status().context(format!(
-                "Failed to execute backend binary {}",
-                output_binary.display()
-            ))?;
+            // Then build and run the backend
+            execute_run(roc_bin, &build_dir, &dist_dir, &input)?;
         }
     }
+
+    Ok(())
+}
+
+fn execute_build(roc_bin: &str, build_dir: &Path, dist_dir: &Path, input: &str) -> Result<()> {
+    // Create dist directory and copy all frontend assets
+    create_directory_if_not_exists(dist_dir)?;
+    copy_frontend_to_dist(dist_dir)?;
+
+    // Build WASM
+    build_wasm(roc_bin, build_dir, input)?;
+
+    // Copy WASM bundle to dist directory
+    copy_wasm_to_dist(build_dir, dist_dir, input)?;
+
+    info!(
+        "Build completed. Files written to {}.",
+        dist_dir.to_str().unwrap()
+    );
+
+    Ok(())
+}
+
+fn execute_run(roc_bin: &str, build_dir: &Path, dist_dir: &Path, input: &str) -> Result<()> {
+    create_directory_if_not_exists(build_dir)?;
+
+    let input_file_name = Path::new(input).file_stem().unwrap().to_str().unwrap();
+    let output_binary = build_dir.join(input_file_name);
+
+    // Build backend binary
+    build_backend(roc_bin, build_dir, input, &output_binary)?;
+
+    // Run the backend binary
+    run_backend(&output_binary, dist_dir)?;
+
+    Ok(())
+}
+
+fn build_wasm(roc_bin: &str, build_dir: &Path, input: &str) -> Result<()> {
+    build_wasm_cmd(roc_bin, build_dir.to_str().unwrap(), input)?
+        .status()
+        .context("Unable to spawn roc build command")?;
+
+    Ok(())
+}
+
+fn copy_wasm_to_dist(build_dir: &Path, dist_dir: &Path, input: &str) -> Result<()> {
+    let input_file_name = Path::new(Path::new(input).file_stem().unwrap()).with_extension("wasm");
+    let source_wasm = build_dir.join(input_file_name);
+    let dest_wasm = dist_dir.join("app.wasm");
+
+    fs::copy(&source_wasm, &dest_wasm).context(format!(
+        "Failed to copy WASM from {} to {}",
+        source_wasm.to_str().unwrap(),
+        dest_wasm.to_str().unwrap()
+    ))?;
+
+    Ok(())
+}
+
+fn build_backend(roc_bin: &str, build_dir: &Path, input: &str, output_binary: &Path) -> Result<()> {
+    build_backend_cmd(
+        roc_bin,
+        build_dir.to_str().unwrap(),
+        input,
+        output_binary.to_str().unwrap(),
+    )?
+    .status()
+    .context("Unable to spawn roc build command for backend")?;
+
+    Ok(())
+}
+
+fn run_backend(output_binary: &Path, dist_dir: &Path) -> Result<()> {
+    // Get absolute path to dist_dir for environment variable
+    let dist_dir_abs = fs::canonicalize(dist_dir).context(format!(
+        "Failed to get absolute path to {}",
+        dist_dir.display()
+    ))?;
+
+    let mut run_cmd = Command::new(output_binary);
+    run_cmd.env("DIST_DIR", dist_dir_abs.to_str().unwrap());
+
+    info!("Running backend with DIST_DIR={}", dist_dir_abs.display());
+    run_cmd.status().context(format!(
+        "Failed to execute backend binary {}",
+        output_binary.display()
+    ))?;
 
     Ok(())
 }
@@ -92,7 +135,7 @@ fn copy_frontend_to_dist(dist_dir: &Path) -> Result<()> {
         fs::create_dir_all(dist_dir)?;
     }
 
-    for entry in dbg!(FRONTEND_DIR.entries()) {
+    for entry in FRONTEND_DIR.entries() {
         let dest_path = dist_dir.join(entry.path());
 
         match entry {
@@ -179,9 +222,9 @@ fn build_wasm_cmd(
     build_dir: &str,
     source_file: &str,
 ) -> anyhow::Result<Command> {
-    fs::metadata(&source_file).context(format!(
+    fs::metadata(source_file).context(format!(
         "Input file provided {} does not exist",
-        &source_file
+        source_file
     ))?;
 
     create_directory_if_not_exists(Path::new(build_dir))?;
@@ -211,9 +254,9 @@ fn build_backend_cmd(
     source_file: &str,
     output_binary: &str,
 ) -> anyhow::Result<Command> {
-    fs::metadata(&source_file).context(format!(
+    fs::metadata(source_file).context(format!(
         "Input file provided {} does not exist",
-        &source_file
+        source_file
     ))?;
 
     create_directory_if_not_exists(Path::new(build_dir))?;
