@@ -23,6 +23,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let dist_dir = Path::new(GALENA_DIR).join("dist");
     let roc_bin = &cli.roc_bin.unwrap_or("roc".to_string());
 
+    // Check if roc binary exists and is executable
+    if let Err(e) = fs::metadata(roc_bin) {
+        return Err(format!("Roc binary '{}' not found: {}", roc_bin, e).into());
+    }
+
     match cli.action {
         Action::Build { input } => {
             execute_build(roc_bin, &build_dir, &dist_dir, &input)?;
@@ -40,6 +45,11 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 fn execute_build(roc_bin: &str, build_dir: &Path, dist_dir: &Path, input: &str) -> Result<()> {
+    // Validate input file exists
+    if let Err(e) = fs::metadata(input) {
+        return Err(anyhow::anyhow!("Input file '{}' not found: {}", input, e));
+    }
+
     // Create dist directory and copy all frontend assets
     create_directory_if_not_exists(dist_dir)?;
     copy_frontend_to_dist(dist_dir)?;
@@ -74,9 +84,13 @@ fn execute_run(roc_bin: &str, build_dir: &Path, dist_dir: &Path, input: &str) ->
 }
 
 fn build_wasm(roc_bin: &str, build_dir: &Path, input: &str) -> Result<()> {
-    build_wasm_cmd(roc_bin, build_dir.to_str().unwrap(), input)?
+    let status = build_wasm_cmd(roc_bin, build_dir.to_str().unwrap(), input)?
         .status()
         .context("Unable to spawn roc build command")?;
+
+    if !status.success() {
+        return Err(anyhow::anyhow!("WASM build failed with status: {}", status));
+    }
 
     Ok(())
 }
@@ -96,7 +110,7 @@ fn copy_wasm_to_dist(build_dir: &Path, dist_dir: &Path, input: &str) -> Result<(
 }
 
 fn build_backend(roc_bin: &str, build_dir: &Path, input: &str, output_binary: &Path) -> Result<()> {
-    build_backend_cmd(
+    let status = build_backend_cmd(
         roc_bin,
         build_dir.to_str().unwrap(),
         input,
@@ -104,6 +118,13 @@ fn build_backend(roc_bin: &str, build_dir: &Path, input: &str, output_binary: &P
     )?
     .status()
     .context("Unable to spawn roc build command for backend")?;
+
+    if !status.success() {
+        return Err(anyhow::anyhow!(
+            "Backend build failed with status: {}",
+            status
+        ));
+    }
 
     Ok(())
 }
@@ -119,10 +140,17 @@ fn run_backend(output_binary: &Path, dist_dir: &Path) -> Result<()> {
     run_cmd.env("DIST_DIR", dist_dir_abs.to_str().unwrap());
 
     info!("Running backend with DIST_DIR={}", dist_dir_abs.display());
-    run_cmd.status().context(format!(
+    let status = run_cmd.status().context(format!(
         "Failed to execute backend binary {}",
         output_binary.display()
     ))?;
+
+    if !status.success() {
+        return Err(anyhow::anyhow!(
+            "Backend execution failed with status: {}",
+            status
+        ));
+    }
 
     Ok(())
 }
@@ -222,11 +250,7 @@ fn build_wasm_cmd(
     build_dir: &str,
     source_file: &str,
 ) -> anyhow::Result<Command> {
-    fs::metadata(source_file).context(format!(
-        "Input file provided {} does not exist",
-        source_file
-    ))?;
-
+    // We already validate file existence in execute_build
     create_directory_if_not_exists(Path::new(build_dir))?;
 
     let build_dir = if !build_dir.ends_with('/') {
@@ -254,11 +278,7 @@ fn build_backend_cmd(
     source_file: &str,
     output_binary: &str,
 ) -> anyhow::Result<Command> {
-    fs::metadata(source_file).context(format!(
-        "Input file provided {} does not exist",
-        source_file
-    ))?;
-
+    // We already validate file existence in execute_build
     create_directory_if_not_exists(Path::new(build_dir))?;
 
     let mut cmd = process::Command::new(roc_bin_path);
