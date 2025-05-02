@@ -12,15 +12,21 @@ export class Application {
   wasmExports: HostExports | null = null;
   ws: ReconnectingWebSocket | null = null;
 
-  constructor() {}
+  constructor() { }
 
   async initializeWasmModule(wasmPath: string) {
     const fetchPromise = fetch(wasmPath);
     const importObject = {
       wasi_snapshot_preview1: {
         proc_exit: procExit,
-        random_get: randomGet(this.memory),
-        fd_write: fdWrite(this.memory),
+        random_get: (bufPtr: number, bufLen: number) =>
+          randomGet(this.memory)(bufPtr, bufLen),
+        fd_write: (
+          fd: number,
+          iovs_ptr: number,
+          iovs_len: number,
+          nwritten_ptr: number,
+        ) => fdWrite(this.memory)(fd, iovs_ptr, iovs_len, nwritten_ptr),
       },
 
       env: {
@@ -30,7 +36,7 @@ export class Application {
         roc_dbg: (_loc: any, _msg: any) => {
           throw "Roc dbg not supported!";
         },
-        sendToBackend: this.sendToBackend,
+        // sendToBackend: this.sendToBackend,
       },
     };
 
@@ -46,11 +52,25 @@ export class Application {
     }
     this.memory = this.wasm.instance.exports.memory as WebAssembly.Memory;
     this.wasmExports = this.wasm.instance.exports as HostExports;
+
+    // TODO: Find a permanent home for calling init
+    const init = this.wasm.instance.exports["init"] as () => null;
+    const view = this.wasm.instance.exports["view"] as () => number;
+
+    init();
+    const { ptr, len } = unpackSlice(view());
+
+    if (!this.memory) {
+      console.error("Cannot read from memory");
+    }
+
+    const dataView = new Uint8Array(this.memory.buffer, ptr, len);
+    console.log(new TextDecoder().decode(dataView));
   }
 
   async initializeWs(wsUrl: string) {
     this.ws = new ReconnectingWebSocket(wsUrl, {
-      onMessage: this.handleIncomingWsMessage,
+      onMessage: (ev) => this.handleIncomingWsMessage(ev),
     });
     this.ws?.connect();
   }
@@ -107,7 +127,7 @@ function procExit(exitCode: number) {
 
 /// Called by Wasm to fill a buffer with random bytes.
 function randomGet(memory: WebAssembly.Memory | null) {
-  return function (bufPtr: number, bufLen: number) {
+  return function(bufPtr: number, bufLen: number) {
     if (!memory) {
       console.error("WASI random_get called before memory was initialized!");
       return 5;
@@ -138,7 +158,7 @@ function randomGet(memory: WebAssembly.Memory | null) {
 }
 
 function fdWrite(memory: WebAssembly.Memory | null) {
-  return function (
+  return function(
     fd: number,
     iovs_ptr: number,
     iovs_len: number,

@@ -87,10 +87,10 @@ export class ReconnectingWebSocket {
       this.websocket.binaryType = "arraybuffer";
 
       // Assign event handlers
-      this.websocket.onopen = this._handleOpen;
-      this.websocket.onmessage = this._handleMessage;
-      this.websocket.onerror = this._handleError;
-      this.websocket.onclose = this._handleClose;
+      this.websocket.onopen = this._handleOpen.bind(this);
+      this.websocket.onmessage = this._handleMessage.bind(this);
+      this.websocket.onerror = this._handleError.bind(this);
+      this.websocket.onclose = this._handleClose.bind(this);
     } catch (error) {
       console.error("Failed to create or connect WebSocket:", error);
       this.isConnecting = false;
@@ -106,8 +106,7 @@ export class ReconnectingWebSocket {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
 
-    // this._processSendBuffer();
-    console.log(this._processSendBuffer);
+    this._processSendBuffer();
 
     // Call callback
     if (this.onOpen) this.onOpen(event);
@@ -136,7 +135,7 @@ export class ReconnectingWebSocket {
   _scheduleReconnect() {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = setTimeout(
-      this._attemptReconnect,
+      this._attemptReconnect.bind(this),
       this.reconnectInterval,
     );
   }
