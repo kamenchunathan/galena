@@ -58,6 +58,20 @@ export fn roc_dealloc(c_ptr: *anyopaque, alignment: u32) callconv(.C) void {
     free(@as([*]align(Align) u8, @alignCast(@ptrCast(c_ptr))));
 }
 
+export fn roc_dbg(loc: *RocStr, msg: *RocStr, src: *RocStr) void {
+    std.debug.print("[{s}] {s} = {s}", .{ loc.asSlice(), src.asSlice(), msg.asSlice() });
+}
+
+export fn roc_panic(msg: *RocStr, tag_id: u32) void {
+    switch (tag_id) {
+        0 => std.debug.print("Roc standard library hit a panic: {s}", .{msg.asSlice()}),
+        1 => std.debug.print("Application hit a panic: {s}", .{msg.asSlice()}),
+        else => {},
+    }
+
+    std.process.exit(0);
+}
+
 // Exports
 pub export fn js_alloc(size: usize) ?[*]const u8 {
     const ptr = malloc(size) orelse return null;
@@ -94,39 +108,14 @@ pub export fn js_greet_person(name: Slice) Slice {
     return .{ .ptr = result_ptr, .len = greeting.len };
 }
 
-// Js env functions
-// extern fn js_send_to_backend(slice: Slice) void;
-
-// JS DOM manipulation functions
-// extern fn js_create_text_node(text: Slice) Slice;
-// extern fn js_create_div(
-//     attrs: Slice,
-//     childIds: Slice,
-//     callback: ?*const fn (Slice, Slice, Slice) void,
-// ) Slice;
-// extern fn js_create_input(
-//     attrs: Slice,
-//     callback: ?*const fn (Slice, Slice, Slice) void,
-// ) Slice;
-// extern fn js_render_view(rootId: Slice, targetId: Slice) bool;
-
-// Event handling callback function
-// export fn handle_dom_event(eventType: Slice, elementId: Slice, value: Slice) void {
-//     const eventTypeStr = RocStr.fromSlice(eventType.to_zig_slice() orelse return);
-//     const elementIdStr = RocStr.fromSlice(elementId.to_zig_slice() orelse return);
-//     const valueStr = RocStr.fromSlice(value.to_zig_slice() orelse return);
-//
-//     // Call Roc function to handle the event
-//     roc_handle_dom_event(eventTypeStr, elementIdStr, valueStr);
-// }
-
 const ViewResult = extern struct { model: *RocBox, view: RocList };
 
 var model: *RocBox = undefined;
 extern fn roc__frontend_host_init_1_exposed(input: i32) callconv(.C) *RocBox;
 extern fn roc__frontend_host_update_1_exposed(
     model_ptr: *const RocBox,
-    msg_bytes: *const RocStr,
+    callback_id: u32,
+    value: *const RocStr,
 ) *RocBox;
 extern fn roc__frontend_host_update_1_exposed_size() u64;
 extern fn roc__frontend_host_view_1_exposed(model_ptr: *RocBox) ViewResult;
@@ -135,21 +124,9 @@ extern fn roc__frontend_receive_ws_message_for_host_1_exposed(
     msg: *const RocStr,
 ) *RocBox;
 extern fn roc__render_view_1_exposed(view: *const RocStr) RocStr;
-extern fn roc__handle_dom_event_1_exposed(
-    model_ptr: *const RocBox,
-    eventType: *const RocStr,
-    elementId: *const RocStr,
-    value: *const RocStr,
-) *RocBox;
 
 pub export fn init() void {
     model = roc__frontend_host_init_1_exposed(0);
-}
-
-pub export fn update(msg_bytes: Slice) void {
-    const msg: RocStr = RocStr.fromSlice(msg_bytes.to_zig_slice().?);
-
-    model = roc__frontend_host_update_1_exposed(model, &msg);
 }
 
 pub export fn view() Slice {
@@ -158,25 +135,13 @@ pub export fn view() Slice {
     return .{ .ptr = res.view.bytes, .len = res.view.len() };
 }
 
-// New function to render the view to the DOM
-// pub export fn render_view(target_id: Slice) bool {
-//     const res = roc__frontend_host_view_1_exposed(model);
-//     model = res.model;
-
-// const rendered_view = roc__render_view_1_exposed(&res.view);
-// const rendered_slice = rendered_view.asSlice();
-//
-// return js_render_view(Slice.from_zig_slice(rendered_slice), target_id);
-// }
-
 // Handle DOM events from JavaScript
-// fn roc_handle_dom_event(eventType: RocStr, elementId: RocStr, value: RocStr) void {
-//     model = roc__handle_dom_event_1_exposed(model, &eventType, &elementId, &value);
-//
-//     // After handling the event, we may want to update the view
-//     // This could be optional depending on your application design
-//     _ = render_view(Slice.from_zig_slice("app".ptr[0..3]));
-// }
+pub export fn handle_dom_event(callback_id: u32, value: Slice) void {
+    std.debug.print("{?s}", .{ .v = value.to_zig_slice() });
+
+    const value_str = RocStr.fromSlice(value.to_zig_slice() orelse return);
+    model = roc__frontend_host_update_1_exposed(model, callback_id, &value_str);
+}
 
 pub export fn handle_ws_message(ws_msg: Slice) void {
     const msg_str = RocStr.fromSlice(Slice.to_zig_slice(ws_msg) orelse return);
@@ -192,23 +157,3 @@ export fn roc_fx_send_to_backend_impl(msg_bytes: *RocStr) callconv(.C) void {
     _ = msg_bytes;
     // js_send_to_backend(Slice.from_zig_slice(msg_bytes.asSlice()));
 }
-
-// View rendering effects
-// export fn roc_fx_create_text_node_impl(text: *RocStr) callconv(.C) RocStr {
-//     const text_slice = Slice.from_zig_slice(text.asSlice());
-//     const result_slice = js_create_text_node(text_slice);
-//     return RocStr.fromSlice(result_slice.to_zig_slice() orelse "".ptr[0..0]);
-// }
-//
-// export fn roc_fx_create_div_impl(attrs: *RocStr, childIds: *RocStr) callconv(.C) RocStr {
-//     const attrs_slice = Slice.from_zig_slice(attrs.asSlice());
-//     const childIds_slice = Slice.from_zig_slice(childIds.asSlice());
-//     const result_slice = js_create_div(attrs_slice, childIds_slice, handle_dom_event);
-//     return RocStr.fromSlice(result_slice.to_zig_slice() orelse "".ptr[0..0]);
-// }
-//
-// export fn roc_fx_create_input_impl(attrs: *RocStr) callconv(.C) RocStr {
-//     const attrs_slice = Slice.from_zig_slice(attrs.asSlice());
-//     const result_slice = js_create_input(attrs_slice, handle_dom_event);
-//     return RocStr.fromSlice(result_slice.to_zig_slice() orelse "".ptr[0..0]);
-// }

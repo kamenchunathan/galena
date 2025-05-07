@@ -3,125 +3,240 @@ module [
     InternalView,
     repr_,
     text_,
-    input_,
+    button_,
     div_,
     id_,
     class_,
     value_,
     placeholder_,
-    internalViewToEncoder,
+    on_click_,
 ]
 
 import json.Json as Json
 
 InternalAttr msg := [
-    OnInput (Str -> msg),
-    OnEnter (Str -> msg),
+    OnClick (msg),
     Id Str,
     Class Str,
     Value Str,
     Placeholder Str,
 ]
-    implements [Encoding { to_encoder: internalAttrToEncoder }]
 
-internalAttrToEncoder : InternalAttr msg -> Encoder fmt where fmt implements EncoderFormatting
-internalAttrToEncoder = |attr|
-    Encode.custom
-        (|bytes, fmt|
-            when attr is
-                @InternalAttr (OnInput _) ->
-                    Encode.append_with
-                        bytes
-                        (Encode.tuple [Encode.string "oninput", Encode.string "#unimplemented"])
+# NOTE: Some of the weird things I'm doing in the append_attr and append_view functions
+# are due to problems encountered with Encoders being passed as is.
+# They are numerous and not exhaustively recorded or the specific causes well understood
+# but here's some of those encountered to keep in mind while refactoring
+# 1. encoders that take lists of encoders result in borrow signature lambda errors. Hence
+#   the redirection using custom and append_with
+# 2. A concrete formatter type is required during recursion
+append_attr : InternalAttr msg, List (msg) -> (Encoder Json.Json , List (msg)) where fmt implements EncoderFormatting
+append_attr = |attr, callbacks|
+    when attr is
+        @InternalAttr (OnClick cb) ->
+            (
+                Encode.custom (|bytes, fmt|
+                    Encode.append_with 
+                        bytes 
+                        (Encode.tuple 
+                            [Encode.string "onclick", Encode.u64 (List.len callbacks)]
+                        )
                         fmt
+                    ),
+                List.append callbacks cb,
+            )
 
-                @InternalAttr (OnEnter _) ->
-                    Encode.append_with
-                        bytes
-                        (Encode.tuple [Encode.string "oninput", Encode.string "#unimplemented"])
-                        fmt
+        @InternalAttr (Id id) ->
+            (
+                Encode.custom (|bytes, fmt|
+                    Encode.append_with bytes (Encode.tuple [Encode.string "id", Encode.string id]) fmt),
+                callbacks,
+            )
 
-                @InternalAttr (Id id) ->
-                    Encode.append_with bytes (Encode.tuple [Encode.string "id", Encode.string id]) fmt
+        @InternalAttr (Class class) ->
+            (
+                Encode.custom (|bytes, fmt|
+                    Encode.append_with bytes (Encode.tuple [Encode.string "class", Encode.string class]) fmt),
+                callbacks,
+            )
 
-                @InternalAttr (Class class) ->
-                    Encode.append_with bytes (Encode.tuple [Encode.string "class", Encode.string class]) fmt
+        @InternalAttr (Value val) ->
+            (
+                Encode.custom (|bytes, fmt|
+                    Encode.append_with bytes (Encode.tuple [Encode.string "val", Encode.string val]) fmt),
+                callbacks,
+            )
 
-                @InternalAttr (Value val) ->
-                    Encode.append_with bytes (Encode.tuple [Encode.string "val", Encode.string val]) fmt
-
-                @InternalAttr (Placeholder placeholder) ->
-                    Encode.append_with bytes (Encode.tuple [Encode.string "placeholder", Encode.string placeholder]) fmt
-        )
-
+        @InternalAttr (Placeholder placeholder) ->
+            (
+                Encode.custom (|bytes, fmt|
+                    Encode.append_with bytes (Encode.tuple [Encode.string "placeholder", Encode.string placeholder]) fmt),
+                callbacks,
+            )
+            
 InternalView msg := [
     Text Str,
     Div (List (InternalAttr msg)) (List (InternalView msg)),
-    Input (List (InternalAttr msg)),
+    Button (List (InternalAttr msg)) (List (InternalView msg)),
 ]
-    implements [Encoding { to_encoder: internalViewToEncoder }]
 
-internalViewToEncoder : InternalView msg -> Encoder fmt where fmt implements EncoderFormatting
-internalViewToEncoder = |view|
-    Encode.custom
-        (|bytes, fmt|
-            when view is
-                @InternalView (Text t) ->
-                    Encode.append_with
-                        bytes
-                        (Encode.record [{ key: "Text", value: Encode.string t }])
-                        fmt
-
-                @InternalView (Div attrs children) ->
-                    Encode.append_with
-                        bytes
-                        (
+append_view : InternalView msg, List (msg) 
+    -> (Encoder Json.Json, List (msg))
+append_view = |view, callbacks|
+    when view is
+        @InternalView (Text t) ->
+            (Encode.custom (|bytes, fmt|
+                Encode.append_with
+                    bytes
+                    (Encode.record [{ key: "Text", value: Encode.string t }])
+                    fmt
+            ),
+                callbacks
+            )
+        
+        @InternalView (Button attrs children) ->
+            (attr_encoders , attr_cbs) = List.walk
+                attrs
+                ([], callbacks)
+                (|(encs, cbs), attr| 
+                    (enc, updated_cbs) = append_attr attr cbs
+                    (List.append encs enc
+                    ,List.concat cbs updated_cbs
+                    )
+                )
+            attr_bytes = Encode.append_with
+                []
+                (Encode.tuple attr_encoders)
+                Json.utf8
+             
+            (child_encoders , child_cbs) = List.walk
+                children
+                ([], attr_cbs)
+                (|(encs, cbs), child_view| 
+                    (enc, updated_cbs) = append_view child_view cbs
+                    (List.append encs enc
+                    ,List.concat cbs updated_cbs
+                    )
+                )
+            child_bytes = Encode.append_with
+                []
+                (Encode.tuple child_encoders)
+                Json.utf8
+ 
+                
+            
+            encoded =
+                ( Encode.record [
+                    {
+                        key: "Button",
+                        value: 
                             Encode.record [
-                                {
-                                    key: "Div",
-                                    value: Encode.record [
-                                        {
-                                            key: "attributes",
-                                            value: Encode.list
-                                                attrs
-                                                (|internal_attr| internalAttrToEncoder internal_attr),
-                                        },
-                                        {
-                                            key: "children",
-                                            value: Encode.list
-                                                children
-                                                (|inner| internalViewToEncoder inner),
-                                        },
-                                    ],
-                                },
-                            ]
-                        )
-                        fmt
+                            {
+                                key: "attributes",
+                                value: Encode.custom (|bytes, _| List.concat bytes attr_bytes)
+                            },
+                            {
+                                key: "children",
+                                value: 
+                                    Encode.custom (|bytes, _| List.concat bytes child_bytes)
+                            },
+                        ],
+                    },
+                ] )
+                
+            (encoded, List.concat callbacks child_cbs)
 
-                @InternalView (Input attrs) ->
-                    Encode.append_with
-                        bytes
-                        (
+           
+
+        @InternalView (Div attrs children) ->
+            (attr_encoders , attr_cbs) = List.walk
+                attrs
+                ([], callbacks)
+                (|(encs, cbs), attr| 
+                    (enc, updated_cbs) = append_attr attr cbs
+                    (List.append encs enc
+                    ,List.concat cbs updated_cbs
+                    )
+                )
+            attr_bytes = Encode.append_with
+                []
+                (Encode.tuple attr_encoders)
+                Json.utf8
+             
+            (child_encoders , child_cbs) = List.walk
+                children
+                ([], attr_cbs)
+                (|(encs, cbs), child_view| 
+                    (enc, updated_cbs) = append_view child_view cbs
+                    (List.append encs enc
+                    ,List.concat cbs updated_cbs
+                    )
+                )
+            child_bytes = Encode.append_with
+                []
+                (Encode.tuple child_encoders)
+                Json.utf8
+ 
+                
+            
+            encoded =
+                ( Encode.record [
+                    {
+                        key: "Div",
+                        value: 
                             Encode.record [
-                                {
-                                    key: "Input",
-                                    value: Encode.record [
-                                        {
-                                            key: "attributes",
-                                            value: Encode.list
-                                                attrs
-                                                (|internal_attr| internalAttrToEncoder internal_attr),
-                                        },
-                                    ],
-                                },
-                            ]
-                        )
-                        fmt
+                            {
+                                key: "attributes",
+                                value: Encode.custom (|bytes, _| List.concat bytes attr_bytes)
+                            },
+                            {
+                                key: "children",
+                                value: 
+                                    Encode.custom (|bytes, _| List.concat bytes child_bytes)
+                            },
+                        ],
+                    },
+                ] )
+                
+            (encoded, List.concat callbacks child_cbs)
 
-        )
+ #        @InternalView (Input attrs) ->
+ #            (attr_encoders , attr_cbs) = List.walk
+ #                attrs
+ #                ([], [])
+ #                (|(encs, cbs), attr| 
+ #                    (enc, updated_cbs) = append_attr attr cbs
+ #                    (List.append encs enc
+ #                    ,List.concat cbs updated_cbs
+ #                    )
+ #                )
+ #            attr_bytes = Encode.append_with
+ #                []
+ #                (Encode.tuple attr_encoders)
+ #                Json.utf8
+ # 
+ #            ( 
+ #                Encode.record [
+ #                    {
+ #                        key: "Input",
+ #                        value: Encode.record [
+ #                            {
+ #                                key: "attributes",
+ #                                value: Encode.custom (|bytes, _| List.concat bytes attr_bytes)
+ #                            },
+ #                        ],
+ #                    },
+ #                ]
+ #                ,
+ #                List.concat callbacks attr_cbs
+ #
+ #            )
 
-repr_ : InternalView msg -> List U8
-repr_ = |view| Encode.to_bytes view Json.utf8
+repr_ : InternalView msg -> (List U8, List msg)
+repr_ = |view| 
+    (view_encoder, callbacks) = append_view view []
+    ( Encode.append_with [] view_encoder Json.utf8,
+    callbacks
+    )
 
 text_ : Str -> InternalView msg
 text_ = |t| @InternalView (Text t)
@@ -129,8 +244,8 @@ text_ = |t| @InternalView (Text t)
 div_ : List (InternalAttr msg), List (InternalView msg) -> InternalView msg
 div_ = |attrs, children| @InternalView (Div attrs children)
 
-input_ : List (InternalAttr msg) -> InternalView msg
-input_ = |attrs| @InternalView (Input attrs)
+button_ : List (InternalAttr msg), List (InternalView msg) -> InternalView msg
+button_ = |attrs, children| @InternalView (Button attrs children)
 
 id_ = |id| @InternalAttr (Id id)
 
@@ -139,3 +254,7 @@ placeholder_ = |placeholder| @InternalAttr (Placeholder placeholder)
 value_ = |val| @InternalAttr (Value val)
 
 class_ = |class| @InternalAttr (Class class)
+
+on_click_ = |ev| @InternalAttr (OnClick ev)
+
+

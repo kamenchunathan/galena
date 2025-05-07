@@ -6,6 +6,7 @@ interface HostExports extends WebAssembly.Exports {
   handle_ws_message: (packedSlice: BigInt) => null;
   js_alloc: (byteSize: number) => number;
   view: () => number;
+  handle_dom_event: (callbackId: number, valueSlice: BigInt) => void;
 }
 
 export class Application {
@@ -39,12 +40,6 @@ export class Application {
       },
 
       env: {
-        roc_panic: (_pointer: any, _tag_id: any) => {
-          throw "Roc panicked!";
-        },
-        roc_dbg: (_loc: any, _msg: any) => {
-          throw "Roc dbg not supported!";
-        },
         sendToBackend: (slice: number) => this.sendToBackend(slice),
       },
     };
@@ -85,7 +80,31 @@ export class Application {
 
       const viewJson = JSON.parse(jsonString);
 
-      renderViewToDOM(this.rootElement, viewJson);
+      if (this.wasm?.instance.exports.handle_dom_event) {
+        renderViewToDOM(
+          this.rootElement,
+          viewJson,
+          (callbackId: number, value: string) => {
+            // Convert strings to Uint8Arrays
+            const valueData = new TextEncoder().encode(value);
+
+            const valuePtr = this.wasmExports!.js_alloc(valueData.byteLength);
+            const valueView = new Uint8Array(
+              this.memory!.buffer,
+              valuePtr,
+              valueData.byteLength,
+            );
+            valueView.set(valueData);
+
+            // Call the WASM function with the packed slices
+            this.wasmExports!.handle_dom_event(
+              callbackId,
+              packSlice(valuePtr, valueData.byteLength),
+            );
+            this.renderView();
+          },
+        );
+      }
     } catch (error) {
       console.error("Error rendering view:", error);
     }

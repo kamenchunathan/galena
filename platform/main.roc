@@ -1,6 +1,6 @@
 platform "galena_platform"
-    requires { FrontendModel, BackendModel, ToFrontendMsg, ToBackendMsg } {
-        frontendApp : Frontend FrontendModel frontendMsg ToFrontendMsg ToBackendMsg,
+    requires { FrontendModel, BackendModel, ToFrontendMsg, ToBackendMsg, FrontendMsg } {
+        frontendApp : Frontend FrontendModel FrontendMsg ToFrontendMsg ToBackendMsg,
         backendApp : Backend BackendModel backendMsg ToFrontendMsg ToBackendMsg,
     }
     exposes [Frontend, Backend]
@@ -25,32 +25,75 @@ import InternalBackend
 import InternalFrontend
 import InternalView
 
-frontend_host_init! : I32 => Box FrontendModel
-frontend_host_init! = |_| Box.box (InternalFrontend.inner frontendApp).init!
 
-frontend_host_update! : Box FrontendModel, Str => Box FrontendModel
-frontend_host_update! = |model, _msg_bytes|
-    # TODO: We're actually not going to call the update function now because that requires
-    # having set up a UI framework
+HostModel :{ frontend_model : FrontendModel,
+    callbacks: List FrontendMsg  } 
 
-    model
 
-frontend_receive_ws_message_for_host! : Box FrontendModel, List U8 => Box FrontendModel
-frontend_receive_ws_message_for_host! = |model, msg_bytes|
+frontend_host_init! : I32 => Box  HostModel  
+frontend_host_init! = |_| 
+    Box.box {
+        frontend_model: (InternalFrontend.inner frontendApp).init!, 
+        callbacks: []
+    }
+
+frontend_host_update! : Box HostModel, U32, Str => Box HostModel
+frontend_host_update! = |boxed, callback_id, _msg_bytes|
+    model = Box.unbox boxed
     app = InternalFrontend.inner frontendApp
-    (updated_model, toBackendMsg) =
-        app.decode_to_frontend_msg msg_bytes
-        |> app.update (Box.unbox model)
-    app.encode_to_backend_msg toBackendMsg
-    |> Str.from_utf8_lossy
-    |> send_to_backend_impl!
-    Box.box updated_model
+    
+    when List.get model.callbacks (Num.to_u64 callback_id) is
+        Ok cb ->  
+            (updated_model, m_to_backend_msg) = app.update cb model.frontend_model
+            _ = when m_to_backend_msg is 
+                Ok to_backend_msg ->
+                    app.encode_to_backend_msg to_backend_msg
+                        |> Str.from_utf8_lossy
+                        |> send_to_backend_impl!
+                    0
+                Err _ -> 0
+                
+            Box.box {
+                frontend_model: updated_model,
+                callbacks: model.callbacks
+                }
 
-frontend_host_view! : Box FrontendModel => { model : Box FrontendModel, view : List U8 }
-frontend_host_view! = |model| {
-    model: model,
-    view: (InternalFrontend.inner frontendApp).view (Box.unbox model) |> InternalView.repr_,
-}
+        Err _ -> 
+            # TODO: Handle this error
+            Box.box model
+
+frontend_receive_ws_message_for_host! : Box HostModel, List U8 => Box (HostModel )
+frontend_receive_ws_message_for_host! = |boxed, msg_bytes|
+    model = (Box.unbox boxed)
+    app = InternalFrontend.inner frontendApp
+    (updated_frontend_model, m_to_backend_msg) =
+        app.decode_to_frontend_msg msg_bytes
+            |> app.updateFromBackend
+            |> app.update model.frontend_model
+    _ = when m_to_backend_msg is 
+        Ok to_backend_msg ->
+            app.encode_to_backend_msg to_backend_msg
+                |> Str.from_utf8_lossy
+                |> send_to_backend_impl!
+            0
+        Err _ -> 0
+ 
+    Box.box {callbacks: model.callbacks, frontend_model: updated_frontend_model}
+
+
+frontend_host_view! : Box (HostModel ) => { model : Box HostModel, view : List U8 }
+frontend_host_view! = |boxed| 
+    model = (Box.unbox boxed)
+    (encoded, cbs) = (InternalFrontend.inner frontendApp).view model.frontend_model 
+        |> InternalView.repr_
+
+    { 
+        model: Box.box { 
+            frontend_model : model.frontend_model, 
+            callbacks: cbs  
+        },
+        view: encoded
+    }
 
 backend_init_for_host! : Box BackendModel
 backend_init_for_host! =

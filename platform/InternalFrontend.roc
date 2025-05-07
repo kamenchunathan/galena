@@ -5,7 +5,7 @@ import json.Json as Json
 
 InternalFrontend model msg toFrontendMsg toBackendMsg := {
     init! : model,
-    update : msg, model -> (model, toBackendMsg),
+    update : msg, model -> (model, Result toBackendMsg [NoOp]),
     view : model -> View msg,
     updateFromBackend : toFrontendMsg -> msg,
     encode_to_backend_msg : toBackendMsg -> List U8,
@@ -14,12 +14,12 @@ InternalFrontend model msg toFrontendMsg toBackendMsg := {
 
 FrontendAppSpec model msg toFrontendMsg toBackendMsg : {
     init! : model,
-    update : msg, model -> (model, toBackendMsg),
+    update : msg, model -> (model, Result toBackendMsg [NoOp]),
     view : model -> View msg,
     updateFromBackend : toFrontendMsg -> msg,
 }
 
-frontend_ : FrontendAppSpec model msg toFrontendMsg toBackendMsg -> InternalFrontend model msg toFrontendMsg toBackendMsg where toBackendMsg implements Encoding, toFrontendMsg implements Decoding
+frontend_ : FrontendAppSpec model msg toFrontendMsg toBackendMsg -> InternalFrontend model msg toFrontendMsg toBackendMsg where msg implements Decoding, toBackendMsg implements Encoding, toFrontendMsg implements Decoding
 frontend_ = |orig|
     @InternalFrontend {
         init!: orig.init!,

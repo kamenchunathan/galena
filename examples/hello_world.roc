@@ -12,30 +12,52 @@ import galena.Backend as Backend exposing [Backend]
 import galena.Frontend as Frontend exposing [Frontend]
 import galena.View as View
 
-FrontendModel : { counter : Dict Str U32 }
+FrontendModel : { counter : I32 }
 
 BackendModel : {}
 
 ToFrontendMsg : {}
 
-ToBackendMsg : {}
+ToBackendMsg : I32
 
-FrontendMsg : {}
+FrontendMsg : [Increment, NoOp]
 
 frontendApp : Frontend FrontendModel FrontendMsg ToFrontendMsg ToBackendMsg
 frontendApp = Frontend.frontend {
-    init!: { counter: Dict.empty {} },
+    init!: { counter: 0 },
 
-    update: |_, model|
-        (model, {}),
+    update: frontend_update,
 
-    view: |_|
-        View.div
-            [View.id "main", View.class "bg-red-400 text-xl font-semibold"]
-            [View.div [] [View.text "This is a form"
-            , View.input [View.id "name-input", View.class "bg-slate-400 border-1 border-blue-400 outlie-none", View.value "wow", View.placeholder "Name please"]]],
-    updateFromBackend: |_| {},
+    view: view,
+
+    updateFromBackend: |_| NoOp,
 }
+
+frontend_update : FrontendMsg, FrontendModel -> (FrontendModel, Result ToBackendMsg [NoOp])
+frontend_update = |msg, model|
+    when msg is
+        Increment -> ({counter: model.counter + 1}, Ok model.counter )
+        NoOp -> (model, Err NoOp)
+        
+
+view : FrontendModel -> View.View FrontendMsg
+view = |model|
+    View.div
+        [View.id "main", View.class "bg-red-400 text-xl font-semibold"]
+        [
+            View.div [] [
+                View.text (Num.to_str model.counter),
+                View.button
+                    [
+                        View.id "incr",
+                        View.class "bg-slate-400 border-1 border-blue-400 outline-none",
+                        View.on_click Increment,
+                    ]
+                    [View.text "+"],
+
+
+            ],
+        ]
 
 backendApp : Backend BackendModel {} ToFrontendMsg ToBackendMsg
 backendApp = Backend.backend {
