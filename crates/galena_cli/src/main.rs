@@ -208,7 +208,13 @@ fn build_wasm(roc_bin: &str, build_dir: &Path, input: &str) -> Result<()> {
         .context("Unable to spawn roc build command")?;
 
     if !status.success() {
-        return Err(anyhow::anyhow!("WASM build failed with status: {}", status));
+        // Exit code 2 is treated as a warning
+        if status.code() == Some(2) {
+            warn!("WASM build completed with warnings (status: {})", status);
+            return Ok(());
+        } else {
+            return Err(anyhow::anyhow!("WASM build failed with status: {}", status));
+        }
     }
 
     Ok(())
@@ -239,10 +245,16 @@ fn build_backend(roc_bin: &str, build_dir: &Path, input: &str, output_binary: &P
     .context("Unable to spawn roc build command for backend")?;
 
     if !status.success() {
-        return Err(anyhow::anyhow!(
-            "Backend build failed with status: {}",
-            status
-        ));
+        // Exit code 2 is treated as a warning
+        if status.code() == Some(2) {
+            warn!("Backend build completed with warnings (status: {})", status);
+            return Ok(());
+        } else {
+            return Err(anyhow::anyhow!(
+                "Backend build failed with status: {}",
+                status
+            ));
+        }
     }
 
     Ok(())
