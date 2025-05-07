@@ -3,16 +3,21 @@ use std::{
     fs,
     path::Path,
     process::{self, Command},
+    sync::mpsc::{channel, Receiver},
+    thread,
+    time::{Duration, Instant},
 };
 
 use anyhow::{self, Context, Result};
 use clap::{Parser, Subcommand};
 use include_dir::{include_dir, Dir};
-use tracing::info;
+use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
+use tracing::{debug, error, info, warn};
 
 static FRONTEND_DIR: Dir = include_dir!("$FRONTEND_DIST_DIR");
 
 const GALENA_DIR: &str = ".galena";
+const DEBOUNCE_MS: u64 = 100; // Debounce time in milliseconds
 
 fn main() -> Result<(), Box<dyn Error>> {
     tracing_subscriber::fmt().init();
@@ -38,6 +43,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 
             // Then build and run the backend
             execute_run(roc_bin, &build_dir, &dist_dir, &input)?;
+        }
+        Action::Watch { input, paths } => {
+            // Watch for file changes
+            watch_files(roc_bin, &build_dir, &dist_dir, &input, paths)?;
         }
     }
 
@@ -79,6 +88,116 @@ fn execute_run(roc_bin: &str, build_dir: &Path, dist_dir: &Path, input: &str) ->
 
     // Run the backend binary
     run_backend(&output_binary, dist_dir)?;
+
+    Ok(())
+}
+
+fn watch_files(
+    roc_bin: &str,
+    build_dir: &Path,
+    dist_dir: &Path,
+    input: &str,
+    additional_paths: Vec<String>,
+) -> Result<()> {
+    // Create a channel to receive file system events
+    let (tx, rx) = channel();
+
+    // Create a watcher
+    let mut watcher = RecommendedWatcher::new(tx, Config::default())?;
+
+    // Determine the root directory of the input file to watch
+    let input_path = Path::new(input);
+    let input_dir = if input_path.is_absolute() {
+        input_path.parent().unwrap().to_path_buf()
+    } else {
+        let current_dir = std::env::current_dir()?;
+        current_dir.join(input_path).parent().unwrap().to_path_buf()
+    };
+
+    // Watch the input file's directory
+    info!("Watching directory: {}", input_dir.display());
+    watcher.watch(&input_dir, RecursiveMode::Recursive)?;
+
+    // Watch additional paths if specified
+    for path in &additional_paths {
+        let path = Path::new(path);
+        if path.exists() {
+            info!("Watching additional path: {}", path.display());
+            watcher.watch(path, RecursiveMode::Recursive)?;
+        } else {
+            warn!("Skipping non-existent path: {}", path.display());
+        }
+    }
+
+    // Create a thread to run the backend
+    let input_clone = input.to_string();
+    let roc_bin_clone = roc_bin.to_string();
+    let build_dir_clone = build_dir.to_path_buf();
+    let dist_dir_clone = dist_dir.to_path_buf();
+
+    // Use a separate thread to run the backend
+    thread::spawn(move || {
+        if let Err(e) = {
+            execute_build(
+                &roc_bin_clone,
+                &build_dir_clone,
+                &dist_dir_clone,
+                &input_clone,
+            )
+            .and_then(|_| {
+                execute_run(
+                    &roc_bin_clone,
+                    &build_dir_clone,
+                    &dist_dir_clone,
+                    &input_clone,
+                )
+            })
+        } {
+            error!("Command failed: {}", e);
+            return;
+        }
+    });
+
+    // Handle events with debouncing
+    handle_events(rx, roc_bin, build_dir, dist_dir, input)?;
+
+    Ok(())
+}
+
+fn handle_events(
+    rx: Receiver<Result<Event, notify::Error>>,
+    roc_bin: &str,
+    build_dir: &Path,
+    dist_dir: &Path,
+    input: &str,
+) -> Result<()> {
+    let mut last_rebuild = Instant::now();
+
+    loop {
+        match rx.recv() {
+            Ok(Ok(event)) => {
+                // Debounce events - only rebuild if a certain time has passed since the last rebuild
+                let now = Instant::now();
+                if now.duration_since(last_rebuild) > Duration::from_millis(DEBOUNCE_MS) {
+                    debug!("File change detected: {:?}", event.paths);
+
+                    // Rebuild the app
+                    if let Err(e) = execute_build(roc_bin, build_dir, dist_dir, input) {
+                        error!("Rebuild failed: {}", e);
+                    } else {
+                        debug!("Rebuild successful!");
+                    }
+
+                    last_rebuild = Instant::now();
+                }
+            }
+            Ok(Err(e)) => error!("Watch error: {}", e),
+            Err(e) => {
+                error!("Watch channel error: {}", e);
+                break;
+            }
+        }
+    }
 
     Ok(())
 }
@@ -235,6 +354,17 @@ enum Action {
     Run {
         /// Input Roc file
         input: String,
+    },
+
+    /// Watches for file changes and rebuilds automatically
+    #[command(alias = "w")]
+    Watch {
+        /// Input Roc file
+        input: String,
+
+        /// Additional paths to watch (optional)
+        #[arg(short, long)]
+        paths: Vec<String>,
     },
 }
 
