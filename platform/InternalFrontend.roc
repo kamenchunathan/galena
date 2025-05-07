@@ -19,7 +19,7 @@ FrontendAppSpec model msg toFrontendMsg toBackendMsg : {
     updateFromBackend : toFrontendMsg -> msg,
 }
 
-frontend_ : FrontendAppSpec model msg toFrontendMsg toBackendMsg  -> InternalFrontend model msg toFrontendMsg toBackendMsg where toBackendMsg implements Encoding, toFrontendMsg implements Decoding
+frontend_ : FrontendAppSpec model msg toFrontendMsg toBackendMsg -> InternalFrontend model msg toFrontendMsg toBackendMsg where toBackendMsg implements Encoding, toFrontendMsg implements Decoding
 frontend_ = |orig|
     @InternalFrontend {
         init!: orig.init!,

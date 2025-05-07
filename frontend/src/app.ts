@@ -1,9 +1,11 @@
 import { ReconnectingWebSocket } from "./ws";
 import { packSlice, unpackSlice } from "./util";
+import { renderViewToDOM } from "./dom";
 
 interface HostExports extends WebAssembly.Exports {
   handle_ws_message: (packedSlice: BigInt) => null;
   js_alloc: (byteSize: number) => number;
+  view: () => number;
 }
 
 export class Application {
@@ -11,8 +13,15 @@ export class Application {
   memory: WebAssembly.Memory | null = null;
   wasmExports: HostExports | null = null;
   ws: ReconnectingWebSocket | null = null;
+  rootElement: HTMLElement | null = null;
 
-  constructor() { }
+  constructor(rootElementId: string = "app") {
+    this.rootElement = document.getElementById(rootElementId);
+    if (!this.rootElement) {
+      console.error(`Root element with ID "${rootElementId}" not found`);
+      this.rootElement = document.body;
+    }
+  }
 
   async initializeWasmModule(wasmPath: string) {
     const fetchPromise = fetch(wasmPath);
@@ -36,7 +45,7 @@ export class Application {
         roc_dbg: (_loc: any, _msg: any) => {
           throw "Roc dbg not supported!";
         },
-        // sendToBackend: this.sendToBackend,
+        sendToBackend: (slice: number) => this.sendToBackend(slice),
       },
     };
 
@@ -55,17 +64,31 @@ export class Application {
 
     // TODO: Find a permanent home for calling init
     const init = this.wasm.instance.exports["init"] as () => null;
-    const view = this.wasm.instance.exports["view"] as () => number;
-
     init();
-    const { ptr, len } = unpackSlice(view());
 
-    if (!this.memory) {
-      console.error("Cannot read from memory");
+    // Render the initial view
+    this.renderView();
+  }
+
+  renderView() {
+    if (!this.wasmExports || !this.memory || !this.rootElement) {
+      console.error("Cannot render view: Required components not initialized");
+      return;
     }
 
-    const dataView = new Uint8Array(this.memory.buffer, ptr, len);
-    console.log(new TextDecoder().decode(dataView));
+    try {
+      const viewSlice = this.wasmExports.view();
+      const { ptr, len } = unpackSlice(viewSlice);
+
+      const dataView = new Uint8Array(this.memory.buffer, ptr, len);
+      const jsonString = new TextDecoder().decode(dataView);
+
+      const viewJson = JSON.parse(jsonString);
+
+      renderViewToDOM(this.rootElement, viewJson);
+    } catch (error) {
+      console.error("Error rendering view:", error);
+    }
   }
 
   async initializeWs(wsUrl: string) {
@@ -90,7 +113,8 @@ export class Application {
 
     this.wasmExports?.handle_ws_message(packSlice(inputPtr, data.byteLength));
 
-    // TODO: deallocate inputPtr
+    // Re-render the view after processing the message
+    this.renderView();
   }
 
   sendToBackend(slice: number) {
@@ -127,7 +151,7 @@ function procExit(exitCode: number) {
 
 /// Called by Wasm to fill a buffer with random bytes.
 function randomGet(memory: WebAssembly.Memory | null) {
-  return function(bufPtr: number, bufLen: number) {
+  return function (bufPtr: number, bufLen: number) {
     if (!memory) {
       console.error("WASI random_get called before memory was initialized!");
       return 5;
@@ -158,7 +182,7 @@ function randomGet(memory: WebAssembly.Memory | null) {
 }
 
 function fdWrite(memory: WebAssembly.Memory | null) {
-  return function(
+  return function (
     fd: number,
     iovs_ptr: number,
     iovs_len: number,

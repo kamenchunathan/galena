@@ -51,6 +51,8 @@
             wabt
 
             zig
+            zls
+
             llvmPackages_18.libllvm
             llvmPackages_18.bintools-unwrapped
 
