@@ -22,7 +22,7 @@ FrontendMsg : {}
 frontendApp : Frontend FrontendModel FrontendMsg ToFrontendMsg ToBackendMsg
 frontendApp = Frontend.frontend {
     init!: { counter: 42069 },
-    update: |_, model| ({ counter: model.counter + 1 }, {}),
+    update: |_, model| ({ counter: model.counter + 1 }, Err NoOp),
     view: |{ counter }| View.text "H ${Num.to_str counter}",
     updateFromBackend: |_| {},
 }

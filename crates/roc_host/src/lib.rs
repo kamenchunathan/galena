@@ -1,5 +1,3 @@
-use server::run_server;
-
 mod roc;
 mod server;
 
@@ -10,7 +8,7 @@ pub extern "C" fn rust_main() -> isize {
         .build()
     {
         Ok(runtime) => {
-            runtime.block_on(async { run_server().await });
+            runtime.block_on(async { server::run_server().await });
 
             0
         }

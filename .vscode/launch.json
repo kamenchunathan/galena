@@ -1,48 +1,13 @@
 {
-  // Use IntelliSense to learn about possible attributes.
-  // Hover to view descriptions of existing attributes.
-  // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
   "version": "0.2.0",
   "configurations": [
     {
-      "type": "lldb", // Debugger type (CodeLLDB)
+      "name": "Debug Galena Backend",
+      "type": "lldb",
       "request": "launch",
-      "name": "Debug Zig Program", // Configuration name shown in VS Code UI
-
-      // --- You MUST configure this ---
-      // Path to the compiled executable.
-      // If using 'zig build', it's typically in 'zig-out/bin/<executable_name>'.
-      // If using 'zig build-exe ... -femit-bin=path/to/exe', use that path.
-      // Replace <your_executable_name> accordingly.
-      "program": "${workspaceFolder}/zig-out/bin/<your_executable_name>", // <-- IMPORTANT: Set this path
-
-      // Arguments to pass to your Zig program when it runs
-      "args": [], // Example: ["arg1", "value1"]
-
-      // Set the working directory for the program
-      "cwd": "${workspaceFolder}",
-
-      // --- Optional: Build before launching ---
-      // This task should be defined in your .vscode/tasks.json file.
-      // It should run 'zig build' or the appropriate build command.
-      "preLaunchTask": "zig build", // <-- Name of your build task in tasks.json
-
-      // Environment variables for the program (if needed)
-      "env": {},
-
-      // Stop at the program entry point (e.g., main)
-      "stopOnEntry": false,
-
-      // Source map configuration (usually not needed unless source paths differ significantly)
-      // "sourceMap": {
-      //     "/build/source/path": "${workspaceFolder}/source/path"
-      // },
-
-      // Commands to run in the debugger console after launching (e.g., set breakpoints)
-      "initCommands": [],
-      "preRunCommands": [],
-      "postRunCommands": []
+      "program": "${workspaceFolder}/.galena/build/hello_world",
+      "args": [],
+      "cwd": "${workspaceFolder}"
     }
-    // Add other configurations if needed (e.g., attaching to a running process)
   ]
 }

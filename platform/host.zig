@@ -78,12 +78,6 @@ pub export fn js_alloc(size: usize) ?[*]const u8 {
     return @as([*]const u8, @ptrCast(@alignCast(ptr)));
 }
 
-// For JS to notify the WASM module that it finished writing to memory
-pub export fn js_write_res(ptr: [*]const u8, len: usize) void {
-    _ = ptr;
-    _ = len;
-}
-
 // Library code
 pub export fn js_greet_person(name: Slice) Slice {
     // Get a temporary allocator for this operation
@@ -107,6 +101,9 @@ pub export fn js_greet_person(name: Slice) Slice {
 
     return .{ .ptr = result_ptr, .len = greeting.len };
 }
+
+// Js functions
+extern fn sendToBackend(Slice) void;
 
 const ViewResult = extern struct { model: *RocBox, view: RocList };
 
@@ -154,6 +151,5 @@ pub export fn main() u8 {
 
 // Effects
 export fn roc_fx_send_to_backend_impl(msg_bytes: *RocStr) callconv(.C) void {
-    _ = msg_bytes;
-    // js_send_to_backend(Slice.from_zig_slice(msg_bytes.asSlice()));
+    sendToBackend(Slice.from_zig_slice(msg_bytes.asSlice()));
 }

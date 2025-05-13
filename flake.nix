@@ -55,6 +55,7 @@
 
             llvmPackages_18.libllvm
             llvmPackages_18.bintools-unwrapped
+            lldb_18
 
             vscode-extensions.vadimcn.vscode-lldb
 

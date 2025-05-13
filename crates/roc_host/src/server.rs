@@ -139,6 +139,7 @@ async fn handle_websocket_connection(
                 let session_id = session_id.clone();
                 let client_id = client_id.clone();
                 tokio::spawn(async move {
+                    // debug!(?msg, "Received message");
                     let roc_model = ROC_MODEL
                         .get()
                         .expect("Model was not initialized at startup")

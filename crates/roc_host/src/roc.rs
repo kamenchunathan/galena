@@ -1,5 +1,5 @@
 use core::ffi::c_void;
-use roc_std::{RocBox, RocList, RocStr};
+use roc_std::{RocBox, RocStr};
 
 #[derive(Clone, Debug)]
 pub struct Model {
@@ -37,10 +37,15 @@ pub fn call_roc_backend_init() -> RocBox<()> {
     unsafe { caller() }
 }
 
-pub fn call_roc_backend_update(model: Model, client_id: &str, session_id: &str, msg: &str) {
+pub fn call_roc_backend_update(mut model: Model, client_id: &str, session_id: &str, msg: &str) {
     extern "C" {
-        #[link_name = "roc__backend_update_for_host_1_exposed_generic"]
-        pub fn caller(model: RocBox<()>, client_id: RocStr, session_id: RocStr, msg: RocStr);
+        #[link_name = "roc__backend_update_for_host_1_exposed"]
+        pub fn caller(
+            model: RocBox<()>,
+            client_id: RocStr,
+            session_id: RocStr,
+            msg_bytes: RocStr,
+        ) -> RocBox<()>;
 
         // #[link_name = "roc__backend_init_for_host_1_exposed_size"]
         // fn size() -> i64;
@@ -50,13 +55,17 @@ pub fn call_roc_backend_update(model: Model, client_id: &str, session_id: &str, 
     let session_id = RocStr::from(session_id);
     let msg = RocStr::from(msg);
 
-    unsafe { caller(model.model, client_id, session_id, msg) }
+    unsafe {
+        let updated_roc_model = caller(model.model, client_id, session_id, msg);
+        model = Model::init(updated_roc_model);
+    };
 }
 
 #[no_mangle]
-pub extern "C" fn roc_fx_send_to_backend_impl(_: &RocStr) {
+pub unsafe extern "C" fn roc_fx_send_to_backend_impl(_: &RocStr) {
     // This should only be called by the frontend
-    panic!("Should only be called from frontend")
+    eprintln!("Should only be called from frontend");
+    std::process::exit(1);
 }
 
 #[no_mangle]

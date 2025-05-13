@@ -28,6 +28,11 @@ build-frontend:
     pnpm build
 
 build-platform:
+    #!/usr/bin/env bash
+    set -euxo pipefail
+
+    roc check ./platform/libapp.roc
+
     roc ./scripts/build.roc
 
 build-host:

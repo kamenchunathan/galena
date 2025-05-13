@@ -36,9 +36,11 @@ frontendApp = Frontend.frontend {
 frontend_update : FrontendMsg, FrontendModel -> (FrontendModel, Result ToBackendMsg [NoOp])
 frontend_update = |msg, model|
     when msg is
-        Increment -> ({counter: model.counter + 1}, Ok model.counter )
+        Increment ->
+            incr = model.counter + 1
+            ({ counter: incr }, Ok incr)
+
         NoOp -> (model, Err NoOp)
-        
 
 view : FrontendModel -> View.View FrontendMsg
 view = |model|
@@ -54,8 +56,6 @@ view = |model|
                         View.on_click Increment,
                     ]
                     [View.text "+"],
-
-
             ],
         ]
 
