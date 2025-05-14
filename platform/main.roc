@@ -115,9 +115,9 @@ backend_update_for_host! = |boxed_model, client_id, session_id, msg_bytes|
             (app.decode_to_backend_msg (Str.to_utf8 msg_bytes))
         |> app.update! model
     when m_to_frontend_msg is
-        Ok to_frontend_msg ->
+        Ok (cid, to_frontend_msg) ->
             msg = Str.from_utf8_lossy (app.encode_to_frontend_msg to_frontend_msg)
-            send_to_frontend_impl! client_id msg
+            send_to_frontend_impl! cid msg
 
         Err _ -> {}
     Box.box updated_model

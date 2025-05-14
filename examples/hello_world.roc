@@ -24,7 +24,7 @@ ToBackendMsg : I32
 
 FrontendMsg : [Increment, NoOp]
 
-BackendendMsg : [UpdateCounter I32]
+BackendendMsg : [UpdateCounter Str I32]
 
 frontendApp : Frontend FrontendModel FrontendMsg ToFrontendMsg ToBackendMsg
 frontendApp = Frontend.frontend {
@@ -68,14 +68,14 @@ backendApp = Backend.backend {
     init!: { counter: 0 },
     update!: |msg, model|
         when msg is
-            UpdateCounter client_counter ->
+            UpdateCounter client_id client_counter ->
                 (
                     { counter: model.counter + client_counter },
-                    Ok (model.counter + client_counter),
+                    Ok (client_id, model.counter + client_counter),
                 ),
     update_from_frontend: update_from_frontend,
 }
 
 update_from_frontend : Str, Str, ToBackendMsg -> BackendendMsg
-update_from_frontend = |_, _, client_counter| UpdateCounter client_counter
+update_from_frontend = |client_id, _, client_counter| UpdateCounter client_id client_counter
 

@@ -30,7 +30,7 @@ frontendApp = Frontend.frontend {
 backendApp : Backend BackendModel {} ToFrontendMsg ToBackendMsg
 backendApp = Backend.backend {
     init!: {},
-    update!: |_, model| (model, Ok {}),
+    update!: |_, model| (model, Err NoOp),
     update_from_frontend: update_from_frontend,
 }
 
