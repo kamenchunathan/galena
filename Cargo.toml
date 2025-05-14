@@ -14,5 +14,5 @@ codegen-units = 1
 
 [workspace.dependencies]
 # TODO: Add a revision here
-roc_std = { git = "https://github.com/roc-lang/roc.git" }
+roc_std = { git = "https://github.com/roc-lang/roc.git", rev = "f2007fde281427d6" }
 anyhow = "1.0.98"
