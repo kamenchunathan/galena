@@ -14,13 +14,17 @@ import galena.View as View
 
 FrontendModel : { counter : I32 }
 
-BackendModel : {}
+BackendModel : {
+    counter : I32,
+}
 
-ToFrontendMsg : {}
+ToFrontendMsg : I32
 
 ToBackendMsg : I32
 
 FrontendMsg : [Increment, NoOp]
+
+BackendendMsg : [UpdateCounter I32]
 
 frontendApp : Frontend FrontendModel FrontendMsg ToFrontendMsg ToBackendMsg
 frontendApp = Frontend.frontend {
@@ -59,13 +63,19 @@ view = |model|
             ],
         ]
 
-backendApp : Backend BackendModel {} ToFrontendMsg ToBackendMsg
+backendApp : Backend BackendModel BackendendMsg ToFrontendMsg ToBackendMsg
 backendApp = Backend.backend {
-    init!: {},
-    update!: |_, model| (model, {}),
+    init!: { counter: 0 },
+    update!: |msg, model|
+        when msg is
+            UpdateCounter client_counter ->
+                (
+                    { counter: model.counter + client_counter },
+                    Ok (model.counter + client_counter),
+                ),
     update_from_frontend: update_from_frontend,
 }
 
-update_from_frontend : Str, Str, toBackendMsg -> {}
-update_from_frontend = |_, _, _| {}
+update_from_frontend : Str, Str, ToBackendMsg -> BackendendMsg
+update_from_frontend = |_, _, client_counter| UpdateCounter client_counter
 

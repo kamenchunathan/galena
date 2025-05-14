@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::env;
 use std::net::SocketAddr;
 use std::path::Path;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, RwLock};
 
 use axum::extract::ws::{Message, WebSocket};
 use axum::extract::{ConnectInfo, State, WebSocketUpgrade};
@@ -14,11 +14,11 @@ use base64::engine::{GeneralPurpose, GeneralPurposeConfig};
 use base64::Engine;
 use cookie::Cookie;
 use futures::stream::SplitSink;
-use futures::StreamExt;
+use futures::{SinkExt, StreamExt};
 use mime;
 use rand::{self, RngCore};
 use tokio::net::TcpListener;
-use tokio::sync::Mutex;
+use tokio::sync::{mpsc, Mutex};
 use tower_cookies::{CookieManagerLayer, Cookies};
 use tower_http::{
     services::{ServeDir, ServeFile},
@@ -28,14 +28,14 @@ use tracing::{debug, error, info, instrument};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
-use crate::roc::{self, call_roc_backend_init};
+use crate::roc::{self, call_roc_backend_init, Model};
+use crate::{MessageInfo, CHANNEL_SENDER};
 
 #[derive(Debug, Clone)]
 struct AppState {
     clients: Arc<Mutex<HashMap<String, SplitSink<WebSocket, Message>>>>,
+    roc_model: Arc<RwLock<Model>>,
 }
-
-static ROC_MODEL: OnceLock<roc::Model> = OnceLock::new();
 
 pub async fn run_server() {
     tracing_subscriber::registry()
@@ -54,9 +54,43 @@ pub async fn run_server() {
         let boxed_model = call_roc_backend_init();
         roc::Model::init(boxed_model)
     };
-    ROC_MODEL
-        .set(roc_model)
-        .expect("Model is only initialized once at start");
+
+    let clients: Arc<Mutex<HashMap<String, SplitSink<WebSocket, Message>>>> =
+        Arc::new(Mutex::new(HashMap::new()));
+
+    debug!("Initializing sender channel");
+    let (tx, mut rx) = mpsc::channel(20);
+    CHANNEL_SENDER.set(tx).expect("Unable to set sender");
+
+    {
+        let clients = Arc::clone(&clients);
+        tokio::spawn(async move {
+            while let Some(MessageInfo {
+                client_id,
+                msg_bytes,
+            }) = rx.recv().await
+            {
+                debug!(?client_id, "Receive channel message");
+                let mut clients = clients.lock().await;
+                match clients.get_mut(&client_id) {
+                    Some(sink) => {
+                        debug!(?sink, "Sink");
+                        sink.send(Message::Text(msg_bytes))
+                            .await
+                            .unwrap_or_else(|_| {
+                                error!("Could not send message through websocket");
+                            });
+                    }
+                    _ => {
+                        error!(
+                            clients = ?clients.iter(),
+                            "Client id not in connected clients"
+                        );
+                    }
+                }
+            }
+        });
+    }
 
     let router = Router::new()
         .route(
@@ -71,7 +105,8 @@ pub async fn run_server() {
         .layer(CookieManagerLayer::new())
         .layer(TraceLayer::new_for_http().make_span_with(DefaultMakeSpan::default()))
         .with_state(AppState {
-            clients: Arc::new(Mutex::new(HashMap::new())),
+            clients,
+            roc_model: Arc::new(RwLock::new(roc_model)),
         });
 
     let listener = TcpListener::bind("0.0.0.0:3000")
@@ -120,7 +155,7 @@ async fn ws_handler(
 }
 
 async fn handle_websocket_connection(
-    AppState { clients }: AppState,
+    AppState { clients, roc_model }: AppState,
     ws: WebSocket,
     session_id: String,
     client_id: String,
@@ -138,13 +173,10 @@ async fn handle_websocket_connection(
             Some(Ok(Message::Text(msg))) => {
                 let session_id = session_id.clone();
                 let client_id = client_id.clone();
+                let roc_model = Arc::clone(&roc_model);
                 tokio::spawn(async move {
-                    // debug!(?msg, "Received message");
-                    let roc_model = ROC_MODEL
-                        .get()
-                        .expect("Model was not initialized at startup")
-                        .clone();
-                    roc::call_roc_backend_update(roc_model, &session_id, &client_id, &msg)
+                    debug!(?msg, "Received message");
+                    roc::call_roc_backend_update(roc_model, &client_id, &session_id, &msg)
                 });
             }
 

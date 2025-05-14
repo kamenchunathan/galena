@@ -1,7 +1,8 @@
 hosted [
     send_to_backend_impl!,
-    args!,
+    send_to_frontend_impl!,
 ]
 
-args! : {} => List Str
 send_to_backend_impl! : Str => {}
+
+send_to_frontend_impl! : Str, Str => {}

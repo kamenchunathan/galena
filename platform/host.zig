@@ -153,3 +153,7 @@ pub export fn main() u8 {
 export fn roc_fx_send_to_backend_impl(msg_bytes: *RocStr) callconv(.C) void {
     sendToBackend(Slice.from_zig_slice(msg_bytes.asSlice()));
 }
+
+export fn roc_fx_send_to_frontend_impl(_: *RocStr, _: *RocStr) callconv(.C) void {
+    std.debug.panic("Should only be used in the backend", .{});
+}

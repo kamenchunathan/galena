@@ -1,5 +1,9 @@
 use core::ffi::c_void;
+use std::sync::{Arc, RwLock};
+
 use roc_std::{RocBox, RocStr};
+
+use crate::{MessageInfo, ASYNC_RUNTIME, CHANNEL_SENDER};
 
 #[derive(Clone, Debug)]
 pub struct Model {
@@ -37,7 +41,12 @@ pub fn call_roc_backend_init() -> RocBox<()> {
     unsafe { caller() }
 }
 
-pub fn call_roc_backend_update(mut model: Model, client_id: &str, session_id: &str, msg: &str) {
+pub fn call_roc_backend_update(
+    model: Arc<RwLock<Model>>,
+    client_id: &str,
+    session_id: &str,
+    msg: &str,
+) {
     extern "C" {
         #[link_name = "roc__backend_update_for_host_1_exposed"]
         pub fn caller(
@@ -54,18 +63,42 @@ pub fn call_roc_backend_update(mut model: Model, client_id: &str, session_id: &s
     let client_id = RocStr::from(client_id);
     let session_id = RocStr::from(session_id);
     let msg = RocStr::from(msg);
+    let updated_roc_model = {
+        let model = model.read().expect("Could not acquire lock").clone();
 
-    unsafe {
-        let updated_roc_model = caller(model.model, client_id, session_id, msg);
-        model = Model::init(updated_roc_model);
+        unsafe { caller(model.model, client_id, session_id, msg) }
     };
+    if let Ok(mut write_lock) = model.write() {
+        *write_lock = unsafe { Model::init(updated_roc_model) };
+    }
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn roc_fx_send_to_backend_impl(_: &RocStr) {
+pub extern "C" fn roc_fx_send_to_backend_impl(_: &RocStr) {
     // This should only be called by the frontend
     eprintln!("Should only be called from frontend");
     std::process::exit(1);
+}
+
+#[no_mangle]
+pub extern "C" fn roc_fx_send_to_frontend_impl(client_id: &RocStr, msg: &RocStr) {
+    let Some(tx) = CHANNEL_SENDER.get() else {
+        return;
+    };
+    let Some(runtime) = ASYNC_RUNTIME.get() else {
+        return;
+    };
+    let client_id = client_id.as_str().to_owned();
+    let msg_bytes = msg.as_str().to_owned();
+
+    runtime.spawn(async {
+        _ = tx
+            .send(MessageInfo {
+                client_id,
+                msg_bytes,
+            })
+            .await;
+    });
 }
 
 #[no_mangle]

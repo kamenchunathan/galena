@@ -22,7 +22,7 @@ FrontendMsg : {}
 frontendApp : Frontend FrontendModel FrontendMsg ToFrontendMsg ToBackendMsg
 frontendApp = Frontend.frontend {
     init!: { counter: 42069 },
-    update: |_, model| ({ counter: model.counter + 1 }, Err NoOp),
+    update: |_, model| ({ counter: model.counter + 1 }, Ok {}),
     view: |{ counter }| View.text "H ${Num.to_str counter}",
     updateFromBackend: |_| {},
 }
@@ -30,7 +30,7 @@ frontendApp = Frontend.frontend {
 backendApp : Backend BackendModel {} ToFrontendMsg ToBackendMsg
 backendApp = Backend.backend {
     init!: {},
-    update!: |_, model| (model, {}),
+    update!: |_, model| (model, Ok {}),
     update_from_frontend: update_from_frontend,
 }
 
