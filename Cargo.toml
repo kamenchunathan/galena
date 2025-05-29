@@ -13,6 +13,5 @@ strip = "debuginfo"
 codegen-units = 1
 
 [workspace.dependencies]
-# TODO: Add a revision here
-roc_std = { git = "https://github.com/roc-lang/roc.git", rev = "f2007fde281427d6" }
+roc_std = { git = "https://github.com/roc-lang/roc.git", rev = "e8ff787c74473085a98f39d6725dbc260817b467" }
 anyhow = "1.0.98"

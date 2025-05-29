@@ -18,14 +18,13 @@ gen-glue:
 
 build:
     just build-frontend
-    just build-host
     just build-platform
     just build-examples
 
 build-frontend:
     #!/usr/bin/env bash
-    cd frontend
-    pnpm build
+    set -euxo pipefail
+    cd frontend && pnpm build
 
 build-platform:
     #!/usr/bin/env bash
@@ -34,9 +33,6 @@ build-platform:
     roc check ./platform/libapp.roc
 
     roc ./scripts/build.roc
-
-build-host:
-    cargo build --release
 
 build-examples:
     #!/usr/bin/env bash
@@ -49,8 +45,10 @@ build-examples:
 
     mkdir -p "{{ build_dir }}/examples/"
     find {{ examples_dir }} -type f -name '*.roc' -print0 | while IFS= read -r -d $'\0' roc_source_file; do
-        {{ roc_bin }} build $roc_source_file --output  "{{ build_dir }}/examples/"
+        roc build --linker legacy $roc_source_file --output  "{{ build_dir }}/examples/"
     done
 
-roc-clean:
-    rm platform/{dynhost,libapp.so,linux-x64.rh,metadata_linux-x64.rm}
+clean:
+    cargo clean
+    rm -f platform/{dynhost,libapp.so,linux-x64.{a,rh},metadata_linux-x64.rm}
+    
