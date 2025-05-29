@@ -42,7 +42,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             execute_build(roc_bin, &build_dir, &dist_dir, &input)?;
 
             // Then build and run the backend
-            execute_run(roc_bin, &build_dir, &dist_dir, &input)?;
+            execute_run(&build_dir, &dist_dir, &input)?;
         }
         Action::Watch { input, paths } => {
             // Watch for file changes
@@ -70,21 +70,24 @@ fn execute_build(roc_bin: &str, build_dir: &Path, dist_dir: &Path, input: &str) 
     copy_wasm_to_dist(build_dir, dist_dir, input)?;
 
     info!(
-        "Build completed. Files written to {}.",
+        "WASM build completed. Files written to {}.",
         dist_dir.to_str().unwrap()
     );
+
+    // Build backend binary
+    info!("Building backend");
+    let input_file_name = Path::new(input).file_stem().unwrap().to_str().unwrap();
+    let output_binary = build_dir.join(input_file_name);
+    build_backend(roc_bin, build_dir, input, &output_binary)?;
 
     Ok(())
 }
 
-fn execute_run(roc_bin: &str, build_dir: &Path, dist_dir: &Path, input: &str) -> Result<()> {
+fn execute_run(build_dir: &Path, dist_dir: &Path, input: &str) -> Result<()> {
     create_directory_if_not_exists(build_dir)?;
 
     let input_file_name = Path::new(input).file_stem().unwrap().to_str().unwrap();
     let output_binary = build_dir.join(input_file_name);
-
-    // Build backend binary
-    build_backend(roc_bin, build_dir, input, &output_binary)?;
 
     // Run the backend binary
     run_backend(&output_binary, dist_dir)?;
@@ -144,14 +147,7 @@ fn watch_files(
                 &dist_dir_clone,
                 &input_clone,
             )
-            .and_then(|_| {
-                execute_run(
-                    &roc_bin_clone,
-                    &build_dir_clone,
-                    &dist_dir_clone,
-                    &input_clone,
-                )
-            })
+            .and_then(|_| execute_run(&build_dir_clone, &dist_dir_clone, &input_clone))
         } {
             error!("Command failed: {}", e);
             return;
@@ -415,16 +411,27 @@ fn build_wasm_cmd(
 }
 
 fn build_backend_cmd(
-    roc_bin_path: &str,
+    _roc_bin_path: &str,
     build_dir: &str,
     source_file: &str,
     output_binary: &str,
 ) -> anyhow::Result<Command> {
+    // NOTE: Not using the roc_bin_path for building the backend as it is only a workaround for
+    // building with wasm where wasi-libc is required but not packaged when building with nix
+
     // We already validate file existence in execute_build
     create_directory_if_not_exists(Path::new(build_dir))?;
 
-    let mut cmd = process::Command::new(roc_bin_path);
-    cmd.args(["build", source_file, "--output", output_binary]);
+    let mut cmd = process::Command::new("roc");
+    cmd.args([
+        "build",
+        "--emit-llvm-ir",
+        "--linker",
+        "legacy",
+        source_file,
+        "--output",
+        output_binary,
+    ]);
 
     Ok(cmd)
 }
