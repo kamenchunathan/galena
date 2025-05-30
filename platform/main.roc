@@ -9,92 +9,70 @@ platform "galena_platform"
     }
     imports []
     provides [
-        frontend_host_init!,
-        frontend_host_update!,
-        frontend_host_view!,
+        frontend_init_for_host!,
+        frontend_update_for_host!,
+        frontend_handle_ws_event_for_host!,
+        frontend_view_for_host!,
         backend_init_for_host!,
         backend_update_for_host!,
-        frontend_receive_ws_message_for_host!,
     ]
 
 import Backend exposing [Backend]
 import Frontend exposing [Frontend]
-import Host exposing [send_to_backend_impl!, send_to_frontend_impl!]
 import InternalBackend
 import InternalFrontend
 import InternalView
 
-HostModel : {
-    frontend_model : FrontendModel,
-    callbacks : List FrontendMsg,
-}
+frontend_init_for_host! : I32 => Box FrontendModel
+frontend_init_for_host! = |_|
+    Box.box (InternalFrontend.inner frontendApp).init!
 
-frontend_host_init! : I32 => Box HostModel
-frontend_host_init! = |_|
-    Box.box {
-        frontend_model: (InternalFrontend.inner frontendApp).init!,
-        callbacks: [],
+frontend_update_for_host! : Box FrontendModel => { model : Box FrontendModel, to_backend : Result Str [NoOp] }
+frontend_update_for_host! = |boxed_model|
+    model = Box.unbox boxed_model
+    app = InternalFrontend.inner frontendApp
+
+    (updated_model, m_to_backend_msg) = app.update (crash "FIXME: working ish") model
+    {
+        model: Box.box updated_model,
+        to_backend:
+            Result.map_ok
+                m_to_backend_msg
+                (|to_backend_msg|  
+                    app.encode_to_backend_msg to_backend_msg
+                        |> Str.from_utf8_lossy
+                )
     }
 
-frontend_host_update! : Box HostModel, U32, Str => Box HostModel
-frontend_host_update! = |boxed, callback_id, _msg_bytes|
+
+frontend_handle_ws_event_for_host! : Box FrontendModel, List U8 => { model : Box FrontendModel, to_backend : Result Str [NoOp] }
+frontend_handle_ws_event_for_host! = |boxed, msg_bytes|
     model = Box.unbox boxed
     app = InternalFrontend.inner frontendApp
-
-    when List.get model.callbacks (Num.to_u64 callback_id) is
-        Ok cb ->
-            (updated_model, m_to_backend_msg) = app.update cb model.frontend_model
-            _ =
-                when m_to_backend_msg is
-                    Ok to_backend_msg ->
-                        app.encode_to_backend_msg to_backend_msg
-                        |> Str.from_utf8_lossy
-                        |> send_to_backend_impl!
-                        0
-
-                    Err _ -> 0
-
-            Box.box {
-                frontend_model: updated_model,
-                callbacks: model.callbacks,
-            }
-
-        Err _ ->
-            # TODO: Handle this error
-            Box.box model
-
-frontend_receive_ws_message_for_host! : Box HostModel, List U8 => Box HostModel
-frontend_receive_ws_message_for_host! = |boxed, msg_bytes|
-    model = Box.unbox boxed
-    app = InternalFrontend.inner frontendApp
-    (updated_frontend_model, m_to_backend_msg) =
+    (updated_model, m_to_backend_msg) =
         app.decode_to_frontend_msg msg_bytes
         |> app.updateFromBackend
-        |> app.update model.frontend_model
-    _ =
-        when m_to_backend_msg is
-            Ok to_backend_msg ->
-                app.encode_to_backend_msg to_backend_msg
-                |> Str.from_utf8_lossy
-                |> send_to_backend_impl!
-                0
-
-            Err _ -> 0
-
-    Box.box { callbacks: model.callbacks, frontend_model: updated_frontend_model }
-
-frontend_host_view! : Box HostModel => { model : Box HostModel, view : List U8 }
-frontend_host_view! = |boxed|
+        |> app.update model
+    { 
+        model: Box.box updated_model, 
+        to_backend: 
+            Result.map_ok
+                m_to_backend_msg
+                (|to_backend_msg|  
+                    app.encode_to_backend_msg to_backend_msg
+                        |> Str.from_utf8_lossy
+                )
+    }
+    
+frontend_view_for_host! : Box FrontendModel => { model : Box FrontendModel, view : List U8 }
+frontend_view_for_host! = |boxed|
     model = Box.unbox boxed
-    (encoded, cbs) =
-        (InternalFrontend.inner frontendApp).view model.frontend_model
+    (encoded, _) =
+        (InternalFrontend.inner frontendApp).view model
         |> InternalView.repr_
 
     {
-        model: Box.box {
-            frontend_model: model.frontend_model,
-            callbacks: cbs,
-        },
+        model: Box.box model, 
         view: encoded,
     }
 
@@ -103,7 +81,7 @@ backend_init_for_host! =
     (InternalBackend.inner backendApp).init!
     |> Box.box
 
-backend_update_for_host! : Box BackendModel, Str, Str, Str => Box BackendModel
+backend_update_for_host! : Box BackendModel, Str, Str, Str => { model : Box BackendModel, to_frontend : Result (Str, Str) [NoOp] }
 backend_update_for_host! = |boxed_model, client_id, session_id, msg_bytes|
     model = Box.unbox boxed_model
     app = InternalBackend.inner backendApp
@@ -114,11 +92,14 @@ backend_update_for_host! = |boxed_model, client_id, session_id, msg_bytes|
             session_id
             (app.decode_to_backend_msg (Str.to_utf8 msg_bytes))
         |> app.update! model
-    when m_to_frontend_msg is
-        Ok (cid, to_frontend_msg) ->
-            msg = Str.from_utf8_lossy (app.encode_to_frontend_msg to_frontend_msg)
-            send_to_frontend_impl! cid msg
 
-        Err _ -> {}
-    Box.box updated_model
+    {
+        model: Box.box updated_model,
+        to_frontend: Result.map_ok
+            m_to_frontend_msg
+            (|(cid, to_frontend_msg)|
+                msg = Str.from_utf8_lossy (app.encode_to_frontend_msg to_frontend_msg)
+                (cid, msg)
+            ),
+    }
 

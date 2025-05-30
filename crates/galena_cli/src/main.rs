@@ -426,8 +426,6 @@ fn build_backend_cmd(
     cmd.args([
         "build",
         "--emit-llvm-ir",
-        "--linker",
-        "legacy",
         source_file,
         "--output",
         output_binary,

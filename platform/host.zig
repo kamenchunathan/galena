@@ -5,7 +5,7 @@ const list = @import("glue/list.zig");
 const result = @import("glue/result.zig");
 
 const Allocator = std.mem.Allocator;
-const RocBox = opaque {};
+const FrontendModel = opaque {};
 const RocStr = str.RocStr;
 const RocList = list.RocList;
 const RocResult = result.RocResult;
@@ -96,7 +96,15 @@ pub export fn js_greet_person(name: Slice) Slice {
     }
 
     const result_ptr =
-        @as([*]u8, @ptrCast(@alignCast(malloc(greeting.len) orelse return .{ .ptr = null, .len = 0 })));
+        @as(
+        [*]u8,
+        @ptrCast(@alignCast(
+            malloc(greeting.len) orelse return .{
+                .ptr = null,
+                .len = 0,
+            },
+        )),
+    );
     _ = memcpy(result_ptr, greeting.ptr, greeting.len);
 
     return .{ .ptr = result_ptr, .len = greeting.len };
@@ -105,44 +113,50 @@ pub export fn js_greet_person(name: Slice) Slice {
 // Js functions
 extern fn sendToBackend(Slice) void;
 
-const ViewResult = extern struct { model: *RocBox, view: RocList };
+const ViewResult = extern struct { model: *FrontendModel, view: RocList };
 
-var model: *RocBox = undefined;
-extern fn roc__frontend_host_init_1_exposed(input: i32) callconv(.C) *RocBox;
-extern fn roc__frontend_host_update_1_exposed(
-    model_ptr: *const RocBox,
-    callback_id: u32,
-    value: *const RocStr,
-) *RocBox;
-extern fn roc__frontend_host_update_1_exposed_size() u64;
-extern fn roc__frontend_host_view_1_exposed(model_ptr: *RocBox) ViewResult;
-extern fn roc__frontend_receive_ws_message_for_host_1_exposed(
-    model_ptr: *const RocBox,
+const UpdateResult = extern struct {
+    model: *FrontendModel,
+    to_backend: RocResult(*FrontendModel, struct {}),
+};
+
+var model: *FrontendModel = undefined;
+
+extern fn roc__frontend_init_for_host_1_exposed(input: i32) callconv(.C) *FrontendModel;
+extern fn roc__frontend_update_for_host_1_exposed(
+    model_ptr: *const FrontendModel,
+) UpdateResult;
+extern fn roc__frontend_update_for_host_1_exposed_size() u64;
+extern fn roc__frontend_view_for_host_1_exposed(model_ptr: *FrontendModel) ViewResult;
+extern fn roc__frontend_handle_ws_event_for_host_1_exposed(
+    model_ptr: *const FrontendModel,
     msg: *const RocStr,
-) *RocBox;
-extern fn roc__render_view_1_exposed(view: *const RocStr) RocStr;
+) UpdateResult;
 
 pub export fn init() void {
-    model = roc__frontend_host_init_1_exposed(0);
+    model = roc__frontend_init_for_host_1_exposed(0);
 }
 
 pub export fn view() Slice {
-    const res = roc__frontend_host_view_1_exposed(model);
+    const res = roc__frontend_view_for_host_1_exposed(model);
     model = res.model;
     return .{ .ptr = res.view.bytes, .len = res.view.len() };
 }
 
 // Handle DOM events from JavaScript
 pub export fn handle_dom_event(callback_id: u32, value: Slice) void {
+    _ = callback_id;
     std.debug.print("{?s}", .{ .v = value.to_zig_slice() });
 
-    const value_str = RocStr.fromSlice(value.to_zig_slice() orelse return);
-    model = roc__frontend_host_update_1_exposed(model, callback_id, &value_str);
+    // const value_str = RocStr.fromSlice(value.to_zig_slice() orelse return);
+    const ret = roc__frontend_update_for_host_1_exposed(model);
+    model = ret.model;
 }
 
 pub export fn handle_ws_message(ws_msg: Slice) void {
     const msg_str = RocStr.fromSlice(Slice.to_zig_slice(ws_msg) orelse return);
-    model = roc__frontend_receive_ws_message_for_host_1_exposed(model, &msg_str);
+    const ret = roc__frontend_handle_ws_event_for_host_1_exposed(model, &msg_str);
+    model = ret.model;
 }
 
 pub export fn main() u8 {
@@ -152,8 +166,4 @@ pub export fn main() u8 {
 // Effects
 export fn roc_fx_send_to_backend_impl(msg_bytes: *RocStr) callconv(.C) void {
     sendToBackend(Slice.from_zig_slice(msg_bytes.asSlice()));
-}
-
-export fn roc_fx_send_to_frontend_impl(_: *RocStr, _: *RocStr) callconv(.C) void {
-    std.debug.panic("Should only be used in the backend", .{});
 }

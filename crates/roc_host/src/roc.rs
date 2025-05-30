@@ -1,13 +1,13 @@
 use core::ffi::c_void;
 use std::sync::{Arc, RwLock};
 
-use roc_std::{RocBox, RocStr};
+use roc_std::{RocBox, RocResult, RocStr};
 
 use crate::{MessageInfo, ASYNC_RUNTIME, CHANNEL_SENDER};
 
 #[derive(Clone, Debug)]
 pub struct Model {
-    model: RocBox<()>,
+    inner: RocBox<()>,
 }
 
 impl Model {
@@ -21,13 +21,25 @@ impl Model {
         *rc_ptr = max_refcount;
 
         Self {
-            model: std::mem::transmute::<*mut usize, roc_std::RocBox<()>>(data_ptr),
+            inner: std::mem::transmute::<*mut usize, roc_std::RocBox<()>>(data_ptr),
         }
     }
 }
 
 unsafe impl Send for Model {}
 unsafe impl Sync for Model {}
+
+#[repr(C)]
+struct BackendUpdateResult {
+    model: RocBox<()>,
+    to_frontend: RocResult<ToFrontendMsg, ()>,
+}
+
+#[repr(C)]
+struct ToFrontendMsg {
+    client_id: RocStr,
+    msg: RocStr,
+}
 
 pub fn call_roc_backend_init() -> RocBox<()> {
     extern "C" {
@@ -50,11 +62,11 @@ pub fn call_roc_backend_update(
     extern "C" {
         #[link_name = "roc__backend_update_for_host_1_exposed"]
         pub fn caller(
-            model: RocBox<()>,
+            boxed_model: RocBox<()>,
             client_id: RocStr,
             session_id: RocStr,
             msg_bytes: RocStr,
-        ) -> RocBox<()>;
+        ) -> BackendUpdateResult;
 
         // #[link_name = "roc__backend_init_for_host_1_exposed_size"]
         // fn size() -> i64;
@@ -66,10 +78,10 @@ pub fn call_roc_backend_update(
     let updated_roc_model = {
         let model = model.read().expect("Could not acquire lock").clone();
 
-        unsafe { caller(model.model, client_id, session_id, msg) }
+        unsafe { caller(model.inner, client_id, session_id, msg) }
     };
     if let Ok(mut write_lock) = model.write() {
-        *write_lock = unsafe { Model::init(updated_roc_model) };
+        *write_lock = unsafe { Model::init(updated_roc_model.model) };
     }
 }
 
