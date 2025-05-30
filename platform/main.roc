@@ -64,7 +64,7 @@ frontend_handle_ws_event_for_host! = |boxed, msg_bytes|
                 )
     }
     
-frontend_view_for_host! : Box FrontendModel => { model : Box FrontendModel, view : List U8 }
+frontend_view_for_host! : Box FrontendModel => { model : Box FrontendModel, view : List U8 , callback!: I32 => Str}
 frontend_view_for_host! = |boxed|
     model = Box.unbox boxed
     (encoded, _) =
@@ -74,7 +74,15 @@ frontend_view_for_host! = |boxed|
     {
         model: Box.box model, 
         view: encoded,
+        callback!: |_| "Booyakasha"
     }
+
+handle_dom_event! = |callback_id|
+    app = (InternalFrontend.inner frontendApp)
+    (_, callbacks) =
+        app.view model
+        |> InternalView.repr_
+    List.get callback_id
 
 backend_init_for_host! : Box BackendModel
 backend_init_for_host! =

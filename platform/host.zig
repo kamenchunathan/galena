@@ -6,6 +6,8 @@ const result = @import("glue/result.zig");
 
 const Allocator = std.mem.Allocator;
 const FrontendModel = opaque {};
+const Captures = opaque {};
+
 const RocStr = str.RocStr;
 const RocList = list.RocList;
 const RocResult = result.RocResult;
@@ -113,7 +115,11 @@ pub export fn js_greet_person(name: Slice) Slice {
 // Js functions
 extern fn sendToBackend(Slice) void;
 
-const ViewResult = extern struct { model: *FrontendModel, view: RocList };
+const ViewResult = extern struct {
+    model: *FrontendModel,
+    view: RocList,
+    captures: *Captures,
+};
 
 const UpdateResult = extern struct {
     model: *FrontendModel,
@@ -127,7 +133,15 @@ extern fn roc__frontend_update_for_host_1_exposed(
     model_ptr: *const FrontendModel,
 ) UpdateResult;
 extern fn roc__frontend_update_for_host_1_exposed_size() u64;
+
 extern fn roc__frontend_view_for_host_1_exposed(model_ptr: *FrontendModel) ViewResult;
+extern fn roc__frontend_view_for_host_0_caller(
+    random_number: *const i32,
+    captures: *const Captures,
+    res: *RocStr,
+) void;
+extern fn roc__frontend_view_for_host_0_result_size() i64;
+
 extern fn roc__frontend_handle_ws_event_for_host_1_exposed(
     model_ptr: *const FrontendModel,
     msg: *const RocStr,
@@ -139,6 +153,7 @@ pub export fn init() void {
 
 pub export fn view() Slice {
     const res = roc__frontend_view_for_host_1_exposed(model);
+
     model = res.model;
     return .{ .ptr = res.view.bytes, .len = res.view.len() };
 }
@@ -150,6 +165,7 @@ pub export fn handle_dom_event(callback_id: u32, value: Slice) void {
 
     // const value_str = RocStr.fromSlice(value.to_zig_slice() orelse return);
     const ret = roc__frontend_update_for_host_1_exposed(model);
+
     model = ret.model;
 }
 
