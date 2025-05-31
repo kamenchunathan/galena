@@ -27,23 +27,22 @@ frontend_init_for_host! : I32 => Box FrontendModel
 frontend_init_for_host! = |_|
     Box.box (InternalFrontend.inner frontendApp).init!
 
-frontend_update_for_host! : Box FrontendModel => { model : Box FrontendModel, to_backend : Result Str [NoOp] }
-frontend_update_for_host! = |boxed_model|
+frontend_update_for_host! : Box FrontendModel, FrontendMsg => { model : Box FrontendModel, 
+                                        to_backend : Result Str [NoOp] }
+frontend_update_for_host! = |boxed_model, msg|
     model = Box.unbox boxed_model
     app = InternalFrontend.inner frontendApp
 
-    (updated_model, m_to_backend_msg) = app.update (crash "FIXME: working ish") model
+    (updated_model, m_to_backend_msg) = app.update msg model
     {
         model: Box.box updated_model,
-        to_backend:
-            Result.map_ok
-                m_to_backend_msg
-                (|to_backend_msg|  
-                    app.encode_to_backend_msg to_backend_msg
-                        |> Str.from_utf8_lossy
-                )
+        to_backend: Result.map_ok
+            m_to_backend_msg
+            (|to_backend_msg|
+                app.encode_to_backend_msg to_backend_msg
+                |> Str.from_utf8_lossy
+            ),
     }
-
 
 frontend_handle_ws_event_for_host! : Box FrontendModel, List U8 => { model : Box FrontendModel, to_backend : Result Str [NoOp] }
 frontend_handle_ws_event_for_host! = |boxed, msg_bytes|
@@ -53,18 +52,18 @@ frontend_handle_ws_event_for_host! = |boxed, msg_bytes|
         app.decode_to_frontend_msg msg_bytes
         |> app.updateFromBackend
         |> app.update model
-    { 
-        model: Box.box updated_model, 
-        to_backend: 
-            Result.map_ok
-                m_to_backend_msg
-                (|to_backend_msg|  
-                    app.encode_to_backend_msg to_backend_msg
-                        |> Str.from_utf8_lossy
-                )
+    {
+        model: Box.box updated_model,
+        to_backend: Result.map_ok
+            m_to_backend_msg
+            (|to_backend_msg|
+                app.encode_to_backend_msg to_backend_msg
+                |> Str.from_utf8_lossy
+            ),
     }
-    
-frontend_view_for_host! : Box FrontendModel => { model : Box FrontendModel, view : List U8 , callback!: I32 => Str}
+
+frontend_view_for_host! : Box FrontendModel => { model : Box FrontendModel, 
+                                        view : List U8, callback : U64 -> FrontendMsg }
 frontend_view_for_host! = |boxed|
     model = Box.unbox boxed
     (encoded, _) =
@@ -72,17 +71,24 @@ frontend_view_for_host! = |boxed|
         |> InternalView.repr_
 
     {
-        model: Box.box model, 
+        model: Box.box model,
         view: encoded,
-        callback!: |_| "Booyakasha"
+        callback: handle_dom_event model,
     }
 
-handle_dom_event! = |callback_id|
-    app = (InternalFrontend.inner frontendApp)
-    (_, callbacks) =
-        app.view model
-        |> InternalView.repr_
-    List.get callback_id
+handle_dom_event : FrontendModel -> (U64 -> FrontendMsg)
+handle_dom_event = |model|
+    |callback_id|
+        app = InternalFrontend.inner frontendApp
+        (_, callbacks) =
+            app.view model
+            |> InternalView.repr_
+        when List.get callbacks callback_id is
+            Ok cb ->
+                # TODO: Replace this with  a proper event type
+                cb {}
+            Err _ ->
+                crash "Callback list is empty"
 
 backend_init_for_host! : Box BackendModel
 backend_init_for_host! =

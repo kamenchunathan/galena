@@ -50,7 +50,7 @@
             wasm-tools
             wabt
 
-            zig
+            # zig
             zls
 
             llvmPackages_18.libllvm
@@ -63,7 +63,7 @@
             just
 
             # node
-            nodejs_23
+            nodejs_24
             nodePackages.pnpm
             typescript
           ];

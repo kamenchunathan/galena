@@ -57,7 +57,7 @@ view = |model|
                     [
                         View.id "incr",
                         View.class "bg-slate-400 border-1 border-blue-400 outline-none",
-                        View.on_click Increment,
+                        View.on_click (|_| Increment),
                     ]
                     [View.text "+"],
             ],
