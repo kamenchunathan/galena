@@ -6,7 +6,7 @@ interface HostExports extends WebAssembly.Exports {
   handle_ws_message: (packedSlice: BigInt) => null;
   js_alloc: (byteSize: number) => number;
   view: () => number;
-  handle_dom_event: (callbackId: number, valueSlice: BigInt) => void;
+  handle_dom_event: (callbackId: BigInt, valueSlice: BigInt) => void;
 }
 
 export class Application {
@@ -85,9 +85,8 @@ export class Application {
           this.rootElement,
           viewJson,
           (callbackId: number, value: string) => {
-            // Convert strings to Uint8Arrays
+            console.debug("callback id: ", callbackId);
             const valueData = new TextEncoder().encode(value);
-
             const valuePtr = this.wasmExports!.js_alloc(valueData.byteLength);
             const valueView = new Uint8Array(
               this.memory!.buffer,
@@ -98,7 +97,7 @@ export class Application {
 
             // Call the WASM function with the packed slices
             this.wasmExports!.handle_dom_event(
-              callbackId,
+              BigInt(callbackId),
               packSlice(valuePtr, valueData.byteLength),
             );
             this.renderView();

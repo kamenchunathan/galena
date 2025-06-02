@@ -45,7 +45,7 @@ build-examples:
 
     mkdir -p "{{ build_dir }}/examples/"
     find {{ examples_dir }} -type f -name '*.roc' -print0 | while IFS= read -r -d $'\0' roc_source_file; do
-        roc build --linker legacy $roc_source_file --output  "{{ build_dir }}/examples/"
+        roc build $roc_source_file --output  "{{ build_dir }}/examples/"
     done
 
 clean:

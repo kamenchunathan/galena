@@ -6,6 +6,7 @@ const result = @import("glue/result.zig");
 
 const Allocator = std.mem.Allocator;
 const FrontendModel = opaque {};
+const FrontendMsg = opaque {};
 const Captures = opaque {};
 
 const RocStr = str.RocStr;
@@ -90,7 +91,11 @@ pub export fn js_greet_person(name: Slice) Slice {
     var greeting: []u8 = undefined;
     const name_bytes = name.to_zig_slice().?;
     if (std.unicode.utf8ValidateSlice(name_bytes)) {
-        greeting = std.fmt.allocPrint(allocator, "Hello, {s}! Welcome to our WebAssembly module.", .{name_bytes}) catch {
+        greeting = std.fmt.allocPrint(
+            allocator,
+            "Hello, {s}! Welcome to our WebAssembly module.",
+            .{name_bytes},
+        ) catch {
             return .{ .ptr = null, .len = 0 };
         };
     } else {
@@ -99,14 +104,14 @@ pub export fn js_greet_person(name: Slice) Slice {
 
     const result_ptr =
         @as(
-        [*]u8,
-        @ptrCast(@alignCast(
-            malloc(greeting.len) orelse return .{
-                .ptr = null,
-                .len = 0,
-            },
-        )),
-    );
+            [*]u8,
+            @ptrCast(@alignCast(
+                malloc(greeting.len) orelse return .{
+                    .ptr = null,
+                    .len = 0,
+                },
+            )),
+        );
     _ = memcpy(result_ptr, greeting.ptr, greeting.len);
 
     return .{ .ptr = result_ptr, .len = greeting.len };
@@ -116,9 +121,9 @@ pub export fn js_greet_person(name: Slice) Slice {
 extern fn sendToBackend(Slice) void;
 
 const ViewResult = extern struct {
-    model: *FrontendModel,
-    view: RocList,
     captures: *Captures,
+    model: *FrontendModel,
+    view: RocStr,
 };
 
 const UpdateResult = extern struct {
@@ -127,18 +132,22 @@ const UpdateResult = extern struct {
 };
 
 var model: *FrontendModel = undefined;
+var captures: *Captures = undefined;
 
 extern fn roc__frontend_init_for_host_1_exposed(input: i32) callconv(.C) *FrontendModel;
 extern fn roc__frontend_update_for_host_1_exposed(
     model_ptr: *const FrontendModel,
+    msg: *const FrontendMsg,
 ) UpdateResult;
 extern fn roc__frontend_update_for_host_1_exposed_size() u64;
 
-extern fn roc__frontend_view_for_host_1_exposed(model_ptr: *FrontendModel) ViewResult;
+extern fn roc__frontend_view_for_host_1_exposed(
+    model_ptr: *const FrontendModel,
+) ViewResult;
 extern fn roc__frontend_view_for_host_0_caller(
-    random_number: *const i32,
+    callback_id: *const u64,
     captures: *const Captures,
-    res: *RocStr,
+    res: **FrontendMsg,
 ) void;
 extern fn roc__frontend_view_for_host_0_result_size() i64;
 
@@ -155,16 +164,27 @@ pub export fn view() Slice {
     const res = roc__frontend_view_for_host_1_exposed(model);
 
     model = res.model;
+    captures = res.captures;
+
+    std.debug.print("{?s}", .{res.view.asSlice()});
     return .{ .ptr = res.view.bytes, .len = res.view.len() };
 }
 
 // Handle DOM events from JavaScript
-pub export fn handle_dom_event(callback_id: u32, value: Slice) void {
-    _ = callback_id;
+pub export fn handle_dom_event(callback_id: u64, value: Slice) void {
     std.debug.print("{?s}", .{ .v = value.to_zig_slice() });
 
-    // const value_str = RocStr.fromSlice(value.to_zig_slice() orelse return);
-    const ret = roc__frontend_update_for_host_1_exposed(model);
+    const frontend_msg =
+        @as(
+            **FrontendMsg,
+            @ptrCast(
+                @alignCast(
+                    malloc(@intCast(roc__frontend_view_for_host_0_result_size())) orelse return,
+                ),
+            ),
+        );
+    roc__frontend_view_for_host_0_caller(&callback_id, captures, frontend_msg);
+    const ret = roc__frontend_update_for_host_1_exposed(model, frontend_msg.*);
 
     model = ret.model;
 }

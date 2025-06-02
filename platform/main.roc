@@ -27,11 +27,12 @@ frontend_init_for_host! : I32 => Box FrontendModel
 frontend_init_for_host! = |_|
     Box.box (InternalFrontend.inner frontendApp).init!
 
-frontend_update_for_host! : Box FrontendModel, FrontendMsg => { model : Box FrontendModel, 
+frontend_update_for_host! : Box FrontendModel, Box FrontendMsg => { model : Box FrontendModel, 
                                         to_backend : Result Str [NoOp] }
-frontend_update_for_host! = |boxed_model, msg|
+frontend_update_for_host! = |boxed_model, boxed_msg|
     model = Box.unbox boxed_model
     app = InternalFrontend.inner frontendApp
+    msg = Box.unbox boxed_msg
 
     (updated_model, m_to_backend_msg) = app.update msg model
     {
@@ -62,8 +63,9 @@ frontend_handle_ws_event_for_host! = |boxed, msg_bytes|
             ),
     }
 
-frontend_view_for_host! : Box FrontendModel => { model : Box FrontendModel, 
-                                        view : List U8, callback : U64 -> FrontendMsg }
+frontend_view_for_host! : Box FrontendModel => { 
+                model : Box FrontendModel, 
+            view : List U8 ,  callback : U64 -> Box FrontendMsg }
 frontend_view_for_host! = |boxed|
     model = Box.unbox boxed
     (encoded, _) =
@@ -71,12 +73,12 @@ frontend_view_for_host! = |boxed|
         |> InternalView.repr_
 
     {
-        model: Box.box model,
-        view: encoded,
+        model: boxed,
+        view:  encoded,
         callback: handle_dom_event model,
     }
 
-handle_dom_event : FrontendModel -> (U64 -> FrontendMsg)
+handle_dom_event : FrontendModel -> (U64 -> Box FrontendMsg)
 handle_dom_event = |model|
     |callback_id|
         app = InternalFrontend.inner frontendApp
@@ -86,7 +88,7 @@ handle_dom_event = |model|
         when List.get callbacks callback_id is
             Ok cb ->
                 # TODO: Replace this with  a proper event type
-                cb {}
+                Box.box (cb {})
             Err _ ->
                 crash "Callback list is empty"
 

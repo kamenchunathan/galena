@@ -50,7 +50,7 @@
             wasm-tools
             wabt
 
-            # zig
+            zig
             zls
 
             llvmPackages_18.libllvm

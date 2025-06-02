@@ -22,7 +22,7 @@ ToFrontendMsg : I32
 
 ToBackendMsg : I32
 
-FrontendMsg : [Increment, NoOp]
+FrontendMsg : [Increment, Decrement, NoOp]
 
 BackendendMsg : [UpdateCounter Str I32]
 
@@ -42,7 +42,11 @@ frontend_update = |msg, model|
     when msg is
         Increment ->
             incr = model.counter + 1
-            ({ counter: incr }, Ok incr)
+            ({ counter: incr }, Err NoOp)
+
+        Decrement ->
+            incr = model.counter - 1
+            ({ counter: incr }, Err NoOp)
 
         NoOp -> (model, Err NoOp)
 
@@ -53,6 +57,13 @@ view = |model|
         [
             View.div [] [
                 View.text (Num.to_str model.counter),
+                View.button
+                    [
+                        View.id "incr",
+                        View.class "bg-slate-400 border-1 border-blue-400 outline-none",
+                        View.on_click (|_| Decrement),
+                    ]
+                    [View.text "-"],
                 View.button
                     [
                         View.id "incr",
