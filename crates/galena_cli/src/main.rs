@@ -2,7 +2,7 @@ use std::{
     error::Error,
     fs,
     path::Path,
-    process::{self, Command},
+    process::{self, Child, Command},
     sync::mpsc::{channel, Receiver},
     thread,
     time::{Duration, Instant},
@@ -83,16 +83,29 @@ fn execute_build(roc_bin: &str, build_dir: &Path, dist_dir: &Path, input: &str) 
     Ok(())
 }
 
-fn execute_run(build_dir: &Path, dist_dir: &Path, input: &str) -> Result<()> {
+fn execute_run(build_dir: &Path, dist_dir: &Path, input: &str) -> Result<Child> {
     create_directory_if_not_exists(build_dir)?;
 
     let input_file_name = Path::new(input).file_stem().unwrap().to_str().unwrap();
     let output_binary = build_dir.join(input_file_name);
 
     // Run the backend binary
-    run_backend(&output_binary, dist_dir)?;
+    // Get absolute path to dist_dir for environment variable
+    let dist_dir_abs = fs::canonicalize(dist_dir).context(format!(
+        "Failed to get absolute path to {}",
+        dist_dir.display()
+    ))?;
 
-    Ok(())
+    let mut run_cmd = Command::new(&output_binary);
+    run_cmd.env("DIST_DIR", dist_dir_abs.to_str().unwrap());
+
+    info!("Running backend with DIST_DIR={}", dist_dir_abs.display());
+    let child = run_cmd.spawn().context(format!(
+        "Failed to execute backend binary {}",
+        &output_binary.display()
+    ))?;
+
+    Ok(child)
 }
 
 fn watch_files(
@@ -102,24 +115,12 @@ fn watch_files(
     input: &str,
     additional_paths: Vec<String>,
 ) -> Result<()> {
-    // Create a channel to receive file system events
     let (tx, rx) = channel();
-
-    // Create a watcher
     let mut watcher = RecommendedWatcher::new(tx, Config::default())?;
 
-    // Determine the root directory of the input file to watch
     let input_path = Path::new(input);
-    let input_dir = if input_path.is_absolute() {
-        input_path.parent().unwrap().to_path_buf()
-    } else {
-        let current_dir = std::env::current_dir()?;
-        current_dir.join(input_path).parent().unwrap().to_path_buf()
-    };
-
-    // Watch the input file's directory
-    info!("Watching directory: {}", input_dir.display());
-    watcher.watch(&input_dir, RecursiveMode::Recursive)?;
+    info!("Watching : {}", input_path.display());
+    watcher.watch(&input_path, RecursiveMode::Recursive)?;
 
     // Watch additional paths if specified
     for path in &additional_paths {
@@ -132,56 +133,52 @@ fn watch_files(
         }
     }
 
-    // Create a thread to run the backend
+    let mut backend_proc: Option<Child> = None;
+    let mut last_rebuild = Instant::now();
+
     let input_clone = input.to_string();
     let roc_bin_clone = roc_bin.to_string();
     let build_dir_clone = build_dir.to_path_buf();
     let dist_dir_clone = dist_dir.to_path_buf();
 
-    // Use a separate thread to run the backend
-    thread::spawn(move || {
-        if let Err(e) = {
-            execute_build(
-                &roc_bin_clone,
-                &build_dir_clone,
-                &dist_dir_clone,
-                &input_clone,
-            )
-            .and_then(|_| execute_run(&build_dir_clone, &dist_dir_clone, &input_clone))
-        } {
-            error!("Command failed: {}", e);
-            return;
-        }
-    });
-
-    // Handle events with debouncing
-    handle_events(rx, roc_bin, build_dir, dist_dir, input)?;
-
-    Ok(())
-}
-
-fn handle_events(
-    rx: Receiver<Result<Event, notify::Error>>,
-    roc_bin: &str,
-    build_dir: &Path,
-    dist_dir: &Path,
-    input: &str,
-) -> Result<()> {
-    let mut last_rebuild = Instant::now();
+    info!("Building app");
+    if let Err(e) = execute_build(
+        &roc_bin_clone,
+        &build_dir_clone,
+        &dist_dir_clone,
+        &input_clone,
+    ) {
+        error!("Build error: {}", e);
+    } else {
+        info!("Running backend");
+        backend_proc = execute_run(&build_dir_clone, &dist_dir_clone, &input_clone).ok();
+    }
 
     loop {
         match rx.recv() {
             Ok(Ok(event)) => {
-                // Debounce events - only rebuild if a certain time has passed since the last rebuild
                 let now = Instant::now();
                 if now.duration_since(last_rebuild) > Duration::from_millis(DEBOUNCE_MS) {
                     debug!("File change detected: {:?}", event.paths);
 
-                    // Rebuild the app
-                    if let Err(e) = execute_build(roc_bin, build_dir, dist_dir, input) {
-                        error!("Rebuild failed: {}", e);
+                    info!("Stopping build thread");
+                    if let Some(mut proc) = backend_proc.take() {
+                        let _ = proc.kill();
+                    }
+
+                    info!("Building app");
+                    if let Err(e) = execute_build(
+                        &roc_bin_clone,
+                        &build_dir_clone,
+                        &dist_dir_clone,
+                        &input_clone,
+                    ) {
+                        error!("Build error: {}", e);
+                        continue;
                     } else {
-                        debug!("Rebuild successful!");
+                        info!("Running backend");
+                        backend_proc =
+                            execute_run(&build_dir_clone, &dist_dir_clone, &input_clone).ok();
                     }
 
                     last_rebuild = Instant::now();
@@ -251,32 +248,6 @@ fn build_backend(roc_bin: &str, build_dir: &Path, input: &str, output_binary: &P
                 status
             ));
         }
-    }
-
-    Ok(())
-}
-
-fn run_backend(output_binary: &Path, dist_dir: &Path) -> Result<()> {
-    // Get absolute path to dist_dir for environment variable
-    let dist_dir_abs = fs::canonicalize(dist_dir).context(format!(
-        "Failed to get absolute path to {}",
-        dist_dir.display()
-    ))?;
-
-    let mut run_cmd = Command::new(output_binary);
-    run_cmd.env("DIST_DIR", dist_dir_abs.to_str().unwrap());
-
-    info!("Running backend with DIST_DIR={}", dist_dir_abs.display());
-    let status = run_cmd.status().context(format!(
-        "Failed to execute backend binary {}",
-        output_binary.display()
-    ))?;
-
-    if !status.success() {
-        return Err(anyhow::anyhow!(
-            "Backend execution failed with status: {}",
-            status
-        ));
     }
 
     Ok(())
