@@ -197,68 +197,96 @@ This example demonstrates:
 
 > You currently cannot use tagged unions as ToBackendMsg and ToBackendMsg. kinda defeats the purpose but that'll hopefully be fixed soon
 
+Looking at your `build.roc` script, I can see the build process and dependencies. Here's an updated README section explaining the build process:
+
 ## Building and Development Setup
 
-Galena is implemented in Rust with Nix dependencies, and uses Just as a command runner for development workflows.
+Galena is implemented in Rust with a Roc build script that orchestrates the compilation of multiple components including WebAssembly bindings, frontend assets, and backend binaries.
 
 ### Prerequisites
 
-- Rust toolchain
-- Nix package manager
-- Just command runner
-- Roc source code (built locally)
+The build process requires these tools:
+
+- **Roc compiler**: For compiling Roc code to various targets
+- **Rust toolchain**: For building the host binaries and CLI
+- **WebAssembly tools**:
+  - `wasm-ld`: WebAssembly linker
+  - `wasm-bindgen`: JavaScript/TypeScript bindings generator
+  - `wasm2wat`: WebAssembly text format converter
+- **Node.js ecosystem**:
+  - `pnpm`: Package manager for frontend dependencies
+- **System tools**: `cp`, `sh`, `grep`, `sed` (standard Unix utilities)
 
 ### Building the Project
 
-1. First, build the platform code:
+The build process is automated through the `build.roc` script, which handles:
 
-```bash
-just build-platform
+1. **Roc version verification**: Ensures the Roc compiler is available
+2. **Stub library creation**: Builds a shared library stub for the target platform
+3. **Backend host compilation**: Builds Rust backend host binaries using Cargo
+4. **Frontend host compilation**: Builds WebAssembly frontend host
+5. **WebAssembly processing**: Links and generates JavaScript bindings
+6. **Frontend asset building**: Compiles frontend assets with pnpm
+7. **CLI compilation**: Builds the final Galena CLI tool
+
+To build the platform:
+
+```just
+just build
 ```
 
-This compiles the necessary Rust components that enable the Galena platform.
+which runs `roc build.roc`
 
-2. Once the platform is built, you can run Galena commands using Cargo:
+### Development Environment
+
+For development, a Nix flake is provided that includes all necessary dependencies:
 
 ```bash
-cargo run --package galena_cli -- build examples/hello_world.roc
+nix develop
 ```
 
-Replace `$ROC_SRC_CODE_PATH` with the path to your local Roc source code directory.
+This provides a development shell with:
+
+- Rust toolchain with WebAssembly targets
+- Roc compiler and language server
+- WebAssembly tools (wasmtime, wasm-tools, wabt, wasm-bindgen)
+- Node.js 24 and pnpm
+- LLVM tools and debugger support
+
+### Build Process Details
+
+The `build.roc` script performs these steps in order:
+
+1. **Platform Detection**: Determines the target OS and architecture
+2. **Stub App Library**: Creates `platform/libapp.{dylib|so|dll}` for the target platform
+3. **Backend Host**: Builds `libhost.a` and copies it to the appropriate platform-specific location
+4. **Host Preprocessing**: Runs `roc preprocess-host` to prepare the surgical host
+5. **Frontend Compilation**:
+   - Builds the frontend host as WebAssembly
+   - Extracts exported functions using `wasm2wat`
+   - Links with `wasm-ld` to create the final WASM module
+   - Generates TypeScript bindings with `wasm-bindgen`
+6. **Frontend Assets**: Runs `pnpm build` in the frontend directory
+7. **CLI Build**: Compiles the final Galena CLI with all components
+
+### Running Applications
+
+Once built, you can use the Galena CLI to build and run applications:
+
+```bash
+./target/release/galena_cli build examples/hello_world.roc
+./target/release/galena_cli watch examples/hello_world.roc
+```
 
 ### Development Workflow
 
-For active development, use the watch command to automatically rebuild when files change:
+For active development on the platform itself:
 
-```bash
-cargo run --package galena_cli -- watch --paths platform/ examples/hello_world.roc
-```
+1. Make changes to platform code
+2. Run `roc build.roc` to rebuild
+3. Test with example applications
 
-This will:
-
-1. Watch both the platform directory and your example application
-2. Rebuild automatically when changes are detected
-3. Run the application after successful builds
-
-### Project Structure
-
-- `crates/galena_cli`: The CLI tool for building and running Galena applications
-- `platform/`: Core platform code for Galena
-- `examples/`: Example applications
-
-When modifying the platform code, make sure to build both the platform and your application to see changes take effect.
-
-Note: Since Galena is a work in progress, you may need to build from source with the latest Roc version to ensure compatibility.
-
-### Options
-
-- `--roc-bin`: Specify a custom path to the Roc binary this is important for installations of roc with nix
-
-## Development Workflow
-
-Use `galena watch` during development to automatically rebuild on changes. It does not provide live reload and only rebuilds the binaries on changes
-
-## Project Structure
+The build script automatically handles cross-platform differences and ensures all components are properly linked together.## Project Structure
 
 When you build a Galena application, it creates:
 
