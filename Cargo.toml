@@ -1,8 +1,9 @@
 [workspace]
 members = [
-  "crates/roc_host",
-  "crates/roc_host_bin",
-  "crates/roc_host_lib",
+  "crates/roc_backend_host",
+  "crates/roc_backend_host_bin",
+  "crates/roc_backend_host_lib",
+  "crates/roc_frontend_host",
   "crates/galena_cli",
 ]
 resolver = "2"

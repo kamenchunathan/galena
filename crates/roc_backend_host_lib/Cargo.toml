@@ -1,5 +1,5 @@
 [package]
-name = "host"
+name = "roc_backend_host_lib"
 version = "0.0.1"
 edition = "2021"
 
@@ -9,4 +9,4 @@ path = "src/lib.rs"
 crate-type = ["staticlib"]
 
 [dependencies]
-roc_host = { path = "../roc_host" }
+roc_backend_host = { path = "../roc_backend_host" }

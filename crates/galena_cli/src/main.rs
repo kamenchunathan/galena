@@ -1,26 +1,29 @@
 use std::{
     error::Error,
-    fs,
+    fs::{self, OpenOptions},
+    io::Write,
     path::Path,
     process::{self, Child, Command},
-    sync::mpsc::{channel, Receiver},
-    thread,
+    sync::mpsc::channel,
     time::{Duration, Instant},
 };
 
 use anyhow::{self, Context, Result};
 use clap::{Parser, Subcommand};
 use include_dir::{include_dir, Dir};
-use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
-use tracing::{debug, error, info, warn};
+use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
+use tracing::{debug, error, info, warn, Level};
 
 static FRONTEND_DIR: Dir = include_dir!("$FRONTEND_DIST_DIR");
+static WASM_BINDGEN_EXPORTS: &'static str = include_str!(env!("WASM_BINDGEN_EXPORTS"));
 
 const GALENA_DIR: &str = ".galena";
-const DEBOUNCE_MS: u64 = 100; // Debounce time in milliseconds
+const DEBOUNCE_MS: u64 = 100;
 
 fn main() -> Result<(), Box<dyn Error>> {
-    tracing_subscriber::fmt().init();
+    tracing_subscriber::fmt()
+        .with_max_level(Level::DEBUG)
+        .init();
 
     let cli = Cli::parse();
 
@@ -35,17 +38,19 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     match cli.action {
         Action::Build { input } => {
+            let input = Path::new(&input);
             execute_build(roc_bin, &build_dir, &dist_dir, &input)?;
         }
-        Action::Run { input } => {
-            // First build the app (including WASM), since we need the dist directory
-            execute_build(roc_bin, &build_dir, &dist_dir, &input)?;
 
-            // Then build and run the backend
+        Action::Run { input } => {
+            let input = Path::new(&input);
+            execute_build(roc_bin, &build_dir, &dist_dir, &input)?;
             execute_run(&build_dir, &dist_dir, &input)?;
         }
+
         Action::Watch { input, paths } => {
             // Watch for file changes
+            let input = Path::new(&input);
             watch_files(roc_bin, &build_dir, &dist_dir, &input, paths)?;
         }
     }
@@ -53,20 +58,24 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn execute_build(roc_bin: &str, build_dir: &Path, dist_dir: &Path, input: &str) -> Result<()> {
+fn execute_build(roc_bin: &str, build_dir: &Path, dist_dir: &Path, input: &Path) -> Result<()> {
     // Validate input file exists
     if let Err(e) = fs::metadata(input) {
-        return Err(anyhow::anyhow!("Input file '{}' not found: {}", input, e));
+        return Err(anyhow::anyhow!(
+            "Input file '{}' not found: {}",
+            input.display(),
+            e
+        ));
     }
 
-    // Create dist directory and copy all frontend assets
+    // Create dist directory
     create_directory_if_not_exists(dist_dir)?;
-    copy_frontend_to_dist(dist_dir)?;
 
     // Build WASM
     build_wasm(roc_bin, build_dir, input)?;
 
-    // Copy WASM bundle to dist directory
+    // Copy WASM bundle all frontend assets to dist directory
+    copy_frontend_to_dist(dist_dir)?;
     copy_wasm_to_dist(build_dir, dist_dir, input)?;
 
     info!(
@@ -83,7 +92,7 @@ fn execute_build(roc_bin: &str, build_dir: &Path, dist_dir: &Path, input: &str) 
     Ok(())
 }
 
-fn execute_run(build_dir: &Path, dist_dir: &Path, input: &str) -> Result<Child> {
+fn execute_run(build_dir: &Path, dist_dir: &Path, input: &Path) -> Result<Child> {
     create_directory_if_not_exists(build_dir)?;
 
     let input_file_name = Path::new(input).file_stem().unwrap().to_str().unwrap();
@@ -112,7 +121,7 @@ fn watch_files(
     roc_bin: &str,
     build_dir: &Path,
     dist_dir: &Path,
-    input: &str,
+    input: &Path,
     additional_paths: Vec<String>,
 ) -> Result<()> {
     let (tx, rx) = channel();
@@ -136,22 +145,16 @@ fn watch_files(
     let mut backend_proc: Option<Child> = None;
     let mut last_rebuild = Instant::now();
 
-    let input_clone = input.to_string();
     let roc_bin_clone = roc_bin.to_string();
     let build_dir_clone = build_dir.to_path_buf();
     let dist_dir_clone = dist_dir.to_path_buf();
 
     info!("Building app");
-    if let Err(e) = execute_build(
-        &roc_bin_clone,
-        &build_dir_clone,
-        &dist_dir_clone,
-        &input_clone,
-    ) {
+    if let Err(e) = execute_build(&roc_bin_clone, &build_dir_clone, &dist_dir_clone, &input) {
         error!("Build error: {}", e);
     } else {
         info!("Running backend");
-        backend_proc = execute_run(&build_dir_clone, &dist_dir_clone, &input_clone).ok();
+        backend_proc = execute_run(&build_dir_clone, &dist_dir_clone, &input).ok();
     }
 
     loop {
@@ -167,18 +170,14 @@ fn watch_files(
                     }
 
                     info!("Building app");
-                    if let Err(e) = execute_build(
-                        &roc_bin_clone,
-                        &build_dir_clone,
-                        &dist_dir_clone,
-                        &input_clone,
-                    ) {
+                    if let Err(e) =
+                        execute_build(&roc_bin_clone, &build_dir_clone, &dist_dir_clone, &input)
+                    {
                         error!("Build error: {}", e);
                         continue;
                     } else {
                         info!("Running backend");
-                        backend_proc =
-                            execute_run(&build_dir_clone, &dist_dir_clone, &input_clone).ok();
+                        backend_proc = execute_run(&build_dir_clone, &dist_dir_clone, &input).ok();
                     }
 
                     last_rebuild = Instant::now();
@@ -195,10 +194,21 @@ fn watch_files(
     Ok(())
 }
 
-fn build_wasm(roc_bin: &str, build_dir: &Path, input: &str) -> Result<()> {
-    let status = build_wasm_cmd(roc_bin, build_dir.to_str().unwrap(), input)?
-        .status()
-        .context("Unable to spawn roc build command")?;
+fn build_wasm(roc_bin: &str, build_dir: &Path, input: &Path) -> Result<()> {
+    create_directory_if_not_exists(build_dir)?;
+
+    let wasm_obj_path = build_dir
+        .join(input.file_stem().context("Could not get input file stem")?)
+        .with_extension("o");
+
+    debug!("Building WASM object file");
+    let status = build_wasm_obj_cmd(
+        roc_bin,
+        wasm_obj_path.to_str().unwrap(),
+        input.to_str().unwrap(),
+    )?
+    .status()
+    .context("Unable to spawn roc build command")?;
 
     if !status.success() {
         // Exit code 2 is treated as a warning
@@ -210,11 +220,73 @@ fn build_wasm(roc_bin: &str, build_dir: &Path, input: &str) -> Result<()> {
         }
     }
 
+    // Linking
+    let libfrontend_host_path = build_dir.join("libfrontend_host.a");
+    let mut libfrontend_host = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&libfrontend_host_path)?;
+
+    let frontend_host_archive: Vec<_> =
+        include_bytes!("../../../target/wasm32-unknown-unknown/release/libfrontend_host.a")
+            .to_vec();
+    libfrontend_host
+        .write_all(&frontend_host_archive)
+        .context("Could not write frontend host archive to temporary file")?;
+
+    let link_output_path = build_dir
+        .join(input.file_stem().context("Could not get input file stem")?)
+        .with_extension("wasm");
+    let exports = WASM_BINDGEN_EXPORTS
+        .split("\n")
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>();
+    let status = link_wasm_cmd(
+        &exports,
+        libfrontend_host_path.to_str().unwrap(),
+        wasm_obj_path.to_str().unwrap(),
+        link_output_path.to_str().unwrap(),
+    )?
+    .status()
+    .context("Could not run WASM linking command")?;
+
+    match status.code() {
+        Some(0) => {
+            info!("Successfully completed linking")
+        }
+        _ => {
+            return Err(anyhow::anyhow!(
+                "WASM linking failed with status {}",
+                status
+            ))
+        }
+    }
+
+    // Wasm bindgen
+    wasm_bindgen_cmd(
+        build_dir
+            .to_str()
+            .context("Convert build-dir path to str")?,
+        link_output_path
+            .to_str()
+            .context("Convert link output path to str")?,
+    )?
+    .status()?;
+
     Ok(())
 }
 
-fn copy_wasm_to_dist(build_dir: &Path, dist_dir: &Path, input: &str) -> Result<()> {
-    let input_file_name = Path::new(Path::new(input).file_stem().unwrap()).with_extension("wasm");
+fn copy_wasm_to_dist(build_dir: &Path, dist_dir: &Path, input: &Path) -> Result<()> {
+    debug!("Copying wasm file to dist");
+    let input_file_name = format!(
+        "{}_bg.wasm",
+        input
+            .file_stem()
+            .context("Could not get file stem")?
+            .to_str()
+            .context("Could not convert filename to string")?
+    );
     let source_wasm = build_dir.join(input_file_name);
     let dest_wasm = dist_dir.join("app.wasm");
 
@@ -227,11 +299,16 @@ fn copy_wasm_to_dist(build_dir: &Path, dist_dir: &Path, input: &str) -> Result<(
     Ok(())
 }
 
-fn build_backend(roc_bin: &str, build_dir: &Path, input: &str, output_binary: &Path) -> Result<()> {
+fn build_backend(
+    roc_bin: &str,
+    build_dir: &Path,
+    input: &Path,
+    output_binary: &Path,
+) -> Result<()> {
     let status = build_backend_cmd(
         roc_bin,
         build_dir.to_str().unwrap(),
-        input,
+        input.to_str().unwrap(),
         output_binary.to_str().unwrap(),
     )?
     .status()
@@ -354,35 +431,8 @@ fn create_directory_if_not_exists(dir: &Path) -> Result<()> {
     Ok(())
 }
 
-fn build_wasm_cmd(
-    roc_bin_path: &str,
-    build_dir: &str,
-    source_file: &str,
-) -> anyhow::Result<Command> {
-    // We already validate file existence in execute_build
-    create_directory_if_not_exists(Path::new(build_dir))?;
-
-    let build_dir = if !build_dir.ends_with('/') {
-        format!("{}/", build_dir)
-    } else {
-        build_dir.to_string()
-    };
-
-    let mut cmd = process::Command::new(roc_bin_path);
-    cmd.args([
-        "build",
-        "--target",
-        "wasm32",
-        source_file,
-        "--output",
-        &build_dir,
-    ]);
-
-    Ok(cmd)
-}
-
 fn build_backend_cmd(
-    _roc_bin_path: &str,
+    roc_bin_path: &str,
     build_dir: &str,
     source_file: &str,
     output_binary: &str,
@@ -393,7 +443,7 @@ fn build_backend_cmd(
     // We already validate file existence in execute_build
     create_directory_if_not_exists(Path::new(build_dir))?;
 
-    let mut cmd = process::Command::new("roc");
+    let mut cmd = process::Command::new(roc_bin_path);
     cmd.args([
         "build",
         "--emit-llvm-ir",
@@ -401,6 +451,58 @@ fn build_backend_cmd(
         "--output",
         output_binary,
     ]);
+
+    Ok(cmd)
+}
+
+fn build_wasm_obj_cmd(
+    roc_bin_path: &str,
+    output_path: &str,
+    source_file: &str,
+) -> anyhow::Result<Command> {
+    let mut cmd = process::Command::new(roc_bin_path);
+
+    // We're handling linking ourselves
+    cmd.args([
+        "build",
+        "--target",
+        "wasm32",
+        "--no-link",
+        "--output",
+        output_path,
+        source_file,
+    ]);
+
+    Ok(cmd)
+}
+
+fn link_wasm_cmd(
+    exports: &[&str],
+    lib_frontend_path: &str,
+    wasm_obj_path: &str,
+    output_path: &str,
+) -> anyhow::Result<Command> {
+    let mut cmd = process::Command::new("wasm-ld");
+    let mut args = exports
+        .iter()
+        .map(|s| format!("--export={s}"))
+        .collect::<Vec<_>>();
+    args.extend([
+        String::from("--no-entry"),
+        String::from(lib_frontend_path),
+        String::from(wasm_obj_path),
+        String::from("-o"),
+        String::from(output_path),
+    ]);
+    cmd.args(args);
+
+    Ok(cmd)
+}
+
+fn wasm_bindgen_cmd(build_dir: &str, input: &str) -> anyhow::Result<process::Command> {
+    let mut cmd = process::Command::new("wasm-bindgen");
+
+    cmd.args(["--target", "web", "--out-dir", build_dir, input]);
 
     Ok(cmd)
 }

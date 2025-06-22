@@ -12,7 +12,7 @@ import galena.Backend as Backend exposing [Backend]
 import galena.Frontend as Frontend exposing [Frontend]
 import galena.View as View
 
-FrontendModel : { counter : I32 }
+FrontendModel : {}
 BackendModel : {}
 
 ToFrontendMsg : {}
@@ -21,11 +21,13 @@ FrontendMsg : {}
 
 frontendApp : Frontend FrontendModel FrontendMsg ToFrontendMsg ToBackendMsg
 frontendApp = Frontend.frontend {
-    init!: { counter: 42069 },
-    update: |_, model| ({ counter: model.counter + 1 }, Ok {}),
-    view: |{ counter }| View.text "H ${Num.to_str counter}",
+    init!: {},
+    update!: frontend_update!,
+    view: |_| View.text "Hello World",
     updateFromBackend: |_| {},
 }
+
+frontend_update! = |_, _| ({}, Err NoOp)
 
 backendApp : Backend BackendModel {} ToFrontendMsg ToBackendMsg
 backendApp = Backend.backend {

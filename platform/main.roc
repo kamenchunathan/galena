@@ -3,7 +3,7 @@ platform "galena_platform"
         frontendApp : Frontend FrontendModel FrontendMsg ToFrontendMsg ToBackendMsg,
         backendApp : Backend BackendModel backendMsg ToFrontendMsg ToBackendMsg,
     }
-    exposes [Frontend, Backend]
+    exposes [Frontend, Backend ]
     packages {
         json: "https://github.com/lukewilliamboswell/roc-json/releases/download/0.13.0/RqendgZw5e1RsQa3kFhgtnMP8efWoqGRsAvubx4-zus.tar.br",
     }
@@ -27,14 +27,20 @@ frontend_init_for_host! : I32 => Box FrontendModel
 frontend_init_for_host! = |_|
     Box.box (InternalFrontend.inner frontendApp).init!
 
-frontend_update_for_host! : Box FrontendModel, Box FrontendMsg => { model : Box FrontendModel, 
-                                        to_backend : Result Str [NoOp] }
+frontend_update_for_host! :
+    Box FrontendModel,
+    Box FrontendMsg
+    =>
+    {
+        model : Box FrontendModel,
+        to_backend : Result Str [NoOp],
+    }
 frontend_update_for_host! = |boxed_model, boxed_msg|
     model = Box.unbox boxed_model
     app = InternalFrontend.inner frontendApp
     msg = Box.unbox boxed_msg
 
-    (updated_model, m_to_backend_msg) = app.update msg model
+    (updated_model, m_to_backend_msg) = app.update! msg model
     {
         model: Box.box updated_model,
         to_backend: Result.map_ok
@@ -52,7 +58,7 @@ frontend_handle_ws_event_for_host! = |boxed, msg_bytes|
     (updated_model, m_to_backend_msg) =
         app.decode_to_frontend_msg msg_bytes
         |> app.updateFromBackend
-        |> app.update model
+        |> app.update! model
     {
         model: Box.box updated_model,
         to_backend: Result.map_ok
@@ -63,35 +69,52 @@ frontend_handle_ws_event_for_host! = |boxed, msg_bytes|
             ),
     }
 
-frontend_view_for_host! : Box FrontendModel => { 
-                model : Box FrontendModel, 
-            view : List U8 ,  callback : U64 -> Box FrontendMsg }
+frontend_view_for_host! :
+    Box FrontendModel
+    =>
+    {
+        view : List U8,
+        model : Box FrontendModel,
+        callback! : U64 => Box FrontendMsg,
+    }
 frontend_view_for_host! = |boxed|
     model = Box.unbox boxed
     (encoded, _) =
         (InternalFrontend.inner frontendApp).view model
         |> InternalView.repr_
-
     {
         model: boxed,
-        view:  encoded,
-        callback: handle_dom_event model,
+        view: encoded,
+        callback!: |callback_id|
+            app = InternalFrontend.inner frontendApp
+            (_, callbacks) =
+                app.view (Box.unbox boxed)
+                |> InternalView.repr_
+            when List.get callbacks callback_id is
+                Ok cb ->
+                    # TODO: Replace this with a proper event type
+                    Box.box (cb {})
+
+                Err _ ->
+                    crash "Callback list is empty",
     }
 
-handle_dom_event : FrontendModel -> (U64 -> Box FrontendMsg)
-handle_dom_event = |model|
-    |callback_id|
-        app = InternalFrontend.inner frontendApp
-        (_, callbacks) =
-            app.view model
-            |> InternalView.repr_
-        when List.get callbacks callback_id is
-            Ok cb ->
-                # TODO: Replace this with  a proper event type
-                Box.box (cb {})
-            Err _ ->
-                crash "Callback list is empty"
-
+# handle_dom_event : Box FrontendModel -> (U64 => Box FrontendMsg)
+# handle_dom_event = |boxed_model|
+#     |callback_id|
+#         print! "handle_dom_event ${Inspect.to_str model}"
+#         print! (Inspect.to_str callback_id)
+#         app = InternalFrontend.inner frontendApp
+#         (_, callbacks) =
+#             app.view model
+#             |> InternalView.repr_
+#         when List.get callbacks callback_id is
+#             Ok cb ->
+#                 # TODO: Replace this with  a proper event type
+#                 Box.box (cb {})
+#             Err _ ->
+#                 crash "Callback list is empty"
+#
 backend_init_for_host! : Box BackendModel
 backend_init_for_host! =
     (InternalBackend.inner backendApp).init!

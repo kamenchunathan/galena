@@ -12,7 +12,7 @@ import galena.Backend as Backend exposing [Backend]
 import galena.Frontend as Frontend exposing [Frontend]
 import galena.View as View
 
-FrontendModel : { counter : I32 }
+FrontendModel : Str
 
 BackendModel : {
     counter : I32,
@@ -22,13 +22,13 @@ ToFrontendMsg : I32
 
 ToBackendMsg : I32
 
-FrontendMsg : [Increment, Decrement, NoOp]
+FrontendMsg : [Click, NoOp]
 
 BackendendMsg : [UpdateCounter Str I32]
 
 frontendApp : Frontend FrontendModel FrontendMsg ToFrontendMsg ToBackendMsg
 frontendApp = Frontend.frontend {
-    init!: { counter: 42069 },
+    init!: "pong",
 
     update!: frontend_update!,
 
@@ -39,14 +39,10 @@ frontendApp = Frontend.frontend {
 
 frontend_update! : FrontendMsg, FrontendModel => (FrontendModel, Result ToBackendMsg [NoOp])
 frontend_update! = |msg, model|
+    # print! (Inspect.to_str msg)
     when msg is
-        Decrement ->
-            incr = model.counter - 1
-            ({ counter: incr }, Err NoOp)
-
-        Increment ->
-            incr = model.counter + 1
-            ({ counter: incr }, Err NoOp)
+        Click ->
+            ("Clicked", Err NoOp)
 
         NoOp -> (model, Err NoOp)
 
@@ -56,21 +52,14 @@ view = |model|
         [View.id "main", View.class "bg-red-400 text-xl font-semibold"]
         [
             View.div [] [
-                View.text (Num.to_str model.counter),
+                View.text model,
                 View.button
                     [
                         View.id "incr",
                         View.class "bg-slate-400 border-1 border-blue-400 outline-none",
-                        View.on_click (|_| Decrement),
+                        View.on_click (|_| Click),
                     ]
-                    [View.text "-"],
-                View.button
-                    [
-                        View.id "incr",
-                        View.class "bg-slate-400 border-1 border-blue-400 outline-none",
-                        View.on_click (|_| Increment),
-                    ]
-                    [View.text "+"],
+                    [View.text "ping"],
             ],
         ]
 

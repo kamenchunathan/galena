@@ -64,6 +64,7 @@
               wasmtime
               wasm-tools
               wabt
+              wasm-bindgen-cli_0_2_100
 
               zig
               zls

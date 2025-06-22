@@ -114,6 +114,11 @@ pub extern "C" fn roc_fx_send_to_frontend_impl(client_id: &RocStr, msg: &RocStr)
 }
 
 #[no_mangle]
+pub extern "C" fn roc_fx_print(client_id: &RocStr) {
+    print!("Hello world");
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn roc_alloc(size: usize, _alignment: u32) -> *mut c_void {
     libc::malloc(size)
 }

@@ -15,3 +15,5 @@ mpt/
 .galena
 examples/*
 !examples/*.roc
+frontend/src/rocApp.d.ts
+frontend/src/rocApp.js
