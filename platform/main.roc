@@ -3,7 +3,7 @@ platform "galena_platform"
         frontendApp : Frontend FrontendModel FrontendMsg ToFrontendMsg ToBackendMsg,
         backendApp : Backend BackendModel backendMsg ToFrontendMsg ToBackendMsg,
     }
-    exposes [Frontend, Backend ]
+    exposes [Frontend, Backend]
     packages {
         json: "https://github.com/lukewilliamboswell/roc-json/releases/download/0.13.0/RqendgZw5e1RsQa3kFhgtnMP8efWoqGRsAvubx4-zus.tar.br",
     }
@@ -20,12 +20,12 @@ platform "galena_platform"
 import Backend exposing [Backend]
 import Frontend exposing [Frontend]
 import InternalBackend
-import InternalFrontend
-import InternalView
+import Internal.Frontend
+import Html
 
 frontend_init_for_host! : I32 => Box FrontendModel
 frontend_init_for_host! = |_|
-    Box.box (InternalFrontend.inner frontendApp).init!
+    Box.box (Internal.Frontend.inner frontendApp).init!
 
 frontend_update_for_host! :
     Box FrontendModel,
@@ -37,7 +37,7 @@ frontend_update_for_host! :
     }
 frontend_update_for_host! = |boxed_model, boxed_msg|
     model = Box.unbox boxed_model
-    app = InternalFrontend.inner frontendApp
+    app = Internal.Frontend.inner frontendApp
     msg = Box.unbox boxed_msg
 
     (updated_model, m_to_backend_msg) = app.update! msg model
@@ -51,10 +51,16 @@ frontend_update_for_host! = |boxed_model, boxed_msg|
             ),
     }
 
-frontend_handle_ws_event_for_host! : Box FrontendModel, List U8 => { model : Box FrontendModel, to_backend : Result Str [NoOp] }
+frontend_handle_ws_event_for_host! :
+    Box FrontendModel,
+    List U8
+    => {
+        model : Box FrontendModel,
+        to_backend : Result Str [NoOp],
+    }
 frontend_handle_ws_event_for_host! = |boxed, msg_bytes|
     model = Box.unbox boxed
-    app = InternalFrontend.inner frontendApp
+    app = Internal.Frontend.inner frontendApp
     (updated_model, m_to_backend_msg) =
         app.decode_to_frontend_msg msg_bytes
         |> app.updateFromBackend
@@ -69,42 +75,48 @@ frontend_handle_ws_event_for_host! = |boxed, msg_bytes|
             ),
     }
 
-frontend_view_for_host! :
-    Box FrontendModel
-    =>
-    {
-        view : List U8,
-        model : Box FrontendModel,
-        callback! : U64 => Box FrontendMsg,
-    }
+# frontend_view_for_host! :
+#     Box FrontendModel
+#     => {
+#         view : List U8,
+#         model : Box FrontendModel,
+#         callback! : U64 => Box FrontendMsg,
+#     }
+# frontend_view_for_host! = |boxed|
+#     model = Box.unbox boxed
+#     (encoded, _) =
+#         (Internal.Frontend.inner frontendApp).view model
+#         |> InternalView.repr_
+#     {
+#         model: boxed,
+#         view: encoded,
+#         callback!: |callback_id|
+#             app = Internal.Frontend.inner frontendApp
+#             (_, callbacks) =
+#                 app.view (Box.unbox boxed)
+#                 |> InternalView.repr_
+#             when List.get callbacks callback_id is
+#                 Ok cb ->
+#                     # TODO: Replace this with a proper event type
+#                     Box.box (cb {})
+#
+#                 Err _ ->
+#                     crash "Callback list is empty",
+#     }
+
+frontend_view_for_host! : Box FrontendModel => Html.Html FrontendMsg
 frontend_view_for_host! = |boxed|
     model = Box.unbox boxed
-    (encoded, _) =
-        (InternalFrontend.inner frontendApp).view model
-        |> InternalView.repr_
-    {
-        model: boxed,
-        view: encoded,
-        callback!: |callback_id|
-            app = InternalFrontend.inner frontendApp
-            (_, callbacks) =
-                app.view (Box.unbox boxed)
-                |> InternalView.repr_
-            when List.get callbacks callback_id is
-                Ok cb ->
-                    # TODO: Replace this with a proper event type
-                    Box.box (cb {})
-
-                Err _ ->
-                    crash "Callback list is empty",
-    }
+    app = Internal.Frontend.inner frontendApp
+    app.view model
+    # Html.text ""
 
 # handle_dom_event : Box FrontendModel -> (U64 => Box FrontendMsg)
 # handle_dom_event = |boxed_model|
 #     |callback_id|
 #         print! "handle_dom_event ${Inspect.to_str model}"
 #         print! (Inspect.to_str callback_id)
-#         app = InternalFrontend.inner frontendApp
+#         app = Internal.Frontend.inner frontendApp
 #         (_, callbacks) =
 #             app.view model
 #             |> InternalView.repr_

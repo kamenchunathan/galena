@@ -5,6 +5,7 @@ members = [
   "crates/roc_backend_host_lib",
   "crates/roc_frontend_host",
   "crates/galena_cli",
+  "crates/roc_app",
 ]
 resolver = "2"
 

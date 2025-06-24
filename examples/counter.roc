@@ -10,7 +10,7 @@ app [
 
 import galena.Backend as Backend exposing [Backend]
 import galena.Frontend as Frontend exposing [Frontend]
-import galena.View as View
+import galena.Html as Html
 
 FrontendModel : Str
 
@@ -46,20 +46,20 @@ frontend_update! = |msg, model|
 
         NoOp -> (model, Err NoOp)
 
-view : FrontendModel -> View.View FrontendMsg
+view : FrontendModel -> Html.Html FrontendMsg
 view = |model|
-    View.div
-        [View.id "main", View.class "bg-red-400 text-xl font-semibold"]
+    Html.div
+        [Html.id "main", Html.class "bg-red-400 text-xl font-semibold"]
         [
-            View.div [] [
-                View.text model,
-                View.button
+            Html.div [] [
+                Html.text model,
+                Html.button
                     [
-                        View.id "incr",
-                        View.class "bg-slate-400 border-1 border-blue-400 outline-none",
-                        View.on_click (|_| Click),
+                        Html.id "incr",
+                        Html.class "bg-slate-400 border-1 border-blue-400 outline-none",
+                        Html.on_click (|_| Click),
                     ]
-                    [View.text "ping"],
+                    [Html.text "ping"],
             ],
         ]
 

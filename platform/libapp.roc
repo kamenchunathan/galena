@@ -10,7 +10,7 @@ app [
 
 import galena.Backend as Backend exposing [Backend]
 import galena.Frontend as Frontend exposing [Frontend]
-import galena.View as View
+import galena.Html as Html
 
 FrontendModel : {}
 BackendModel : {}
@@ -23,7 +23,7 @@ frontendApp : Frontend FrontendModel FrontendMsg ToFrontendMsg ToBackendMsg
 frontendApp = Frontend.frontend {
     init!: {},
     update!: frontend_update!,
-    view: |_| View.text "Hello World",
+    view: |_| Html.text "Hello World",
     updateFromBackend: |_| {},
 }
 

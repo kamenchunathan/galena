@@ -3,7 +3,7 @@ use std::{
     fs::{self, OpenOptions},
     io::Write,
     path::Path,
-    process::{self, Child, Command},
+    process::{self, Child, Command, ExitStatus},
     sync::mpsc::channel,
     time::{Duration, Instant},
 };
@@ -32,8 +32,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     let roc_bin = &cli.roc_bin.unwrap_or("roc".to_string());
 
     // Check if roc binary exists and is executable
-    if let Err(e) = fs::metadata(roc_bin) {
-        return Err(format!("Roc binary '{}' not found: {}", roc_bin, e).into());
+    match process::Command::new(roc_bin).arg("--version").status() {
+        Ok(status) => {
+            if !status.success() {
+                warn!("Error running roc command");
+            }
+        }
+        Err(e) => return Err(format!("Roc binary '{}' not found: {}", roc_bin, e).into()),
     }
 
     match cli.action {

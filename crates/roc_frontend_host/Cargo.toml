@@ -17,12 +17,21 @@ panic = "abort"
 [dependencies]
 roc_std.workspace = true
 anyhow.workspace = true
+roc_app = { path = "../roc_app" }
 libc = "0.2"
 wee_alloc = "0.4.5"
 wasm-bindgen = "0.2.100"
-web-sys = { version = "0.3.77", features = [
-  "Window",
+web-sys = { version = "0.3", features = [
+  "console",
   "Document",
   "Element",
+  "Event",
+  "EventTarget",
   "HtmlElement",
-] }
+  "HtmlInputElement",
+  "KeyboardEvent",
+  "MouseEvent",
+  "Node",
+  "Text",
+  "Window",
+]}
