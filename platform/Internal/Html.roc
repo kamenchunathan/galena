@@ -1,5 +1,6 @@
 module [
     InternalHtml,
+    map_,
     text_,
     div_,
     p_,
@@ -44,7 +45,7 @@ module [
     hr_,
 ]
 
-import Internal.Attr exposing [InternalAttr]
+import Internal.Attr as Attr exposing [InternalAttr]
 
 InternalHtml msg := [
     Text Str,
@@ -67,6 +68,26 @@ createElement = |tag, attrs, children|
                 children: children,
             }
         )
+
+# Map function for InternalHtml that transforms message types
+map_ : InternalHtml oldMsg, (oldMsg -> newMsg) -> InternalHtml newMsg
+map_ = |html, mapper|
+    when html is
+        @InternalHtml (Text content) ->
+            @InternalHtml (Text content)
+
+        @InternalHtml (Element { tag, attrs, children }) ->
+            mappedAttrs = List.map(attrs, |attr| Attr.map attr mapper)
+            mappedChildren = List.map(children, |child| map_ child mapper)
+
+            @InternalHtml
+                (
+                    Element {
+                        tag,
+                        attrs: mappedAttrs,
+                        children: mappedChildren,
+                    }
+                )
 
 # Text node
 text_ : Str -> InternalHtml msg

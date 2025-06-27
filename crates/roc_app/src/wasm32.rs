@@ -17,7 +17,292 @@
 #![allow(clippy::non_canonical_partial_ord_impl)]
 
 use roc_std::roc_refcounted_noop_impl;
-use roc_std::RocRefcounted;
+use roc_std::{RocBox, RocRefcounted};
+
+#[derive(Clone, Copy, Default, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[repr(transparent)]
+pub struct U2();
+
+impl U2 {
+    /// A tag named NoOp, which has no payload.
+    pub const NoOp: Self = Self();
+
+    /// Other `into_` methods return a payload, but since NoOp tag
+    /// has no payload, this does nothing and is only here for completeness.
+    pub fn into_NoOp(self) {
+        ()
+    }
+
+    /// Other `as_` methods return a payload, but since NoOp tag
+    /// has no payload, this does nothing and is only here for completeness.
+    pub fn as_NoOp(&self) {
+        ()
+    }
+}
+
+impl core::fmt::Debug for U2 {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("U2::NoOp")
+    }
+}
+
+roc_refcounted_noop_impl!(U2);
+
+#[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[repr(u8)]
+pub enum discriminant_U1 {
+    Err = 0,
+    Ok = 1,
+}
+
+impl core::fmt::Debug for discriminant_U1 {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Err => f.write_str("discriminant_U1::Err"),
+            Self::Ok => f.write_str("discriminant_U1::Ok"),
+        }
+    }
+}
+
+roc_refcounted_noop_impl!(discriminant_U1);
+
+#[repr(C, align(4))]
+pub union union_U1 {
+    Err: U2,
+    Ok: core::mem::ManuallyDrop<roc_std::RocStr>,
+}
+
+// TODO(@roc-lang): See https://github.com/roc-lang/roc/issues/6012
+// const _SIZE_CHECK_union_U1: () = assert!(core::mem::size_of::<union_U1>() == 12);
+const _ALIGN_CHECK_union_U1: () = assert!(core::mem::align_of::<union_U1>() == 4);
+
+const _SIZE_CHECK_U1: () = assert!(core::mem::size_of::<U1>() == 16);
+const _ALIGN_CHECK_U1: () = assert!(core::mem::align_of::<U1>() == 4);
+
+impl U1 {
+    /// Returns which variant this tag union holds. Note that this never includes a payload!
+    pub fn discriminant(&self) -> discriminant_U1 {
+        unsafe {
+            let bytes = core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(self);
+
+            core::mem::transmute::<u8, discriminant_U1>(*bytes.as_ptr().add(12))
+        }
+    }
+
+    /// Internal helper
+    fn set_discriminant(&mut self, discriminant: discriminant_U1) {
+        let discriminant_ptr: *mut discriminant_U1 = (self as *mut U1).cast();
+
+        unsafe {
+            *(discriminant_ptr.add(12)) = discriminant;
+        }
+    }
+}
+
+#[repr(C)]
+pub struct U1 {
+    payload: union_U1,
+    discriminant: discriminant_U1,
+}
+
+impl Clone for U1 {
+    fn clone(&self) -> Self {
+        use discriminant_U1::*;
+
+        let payload = unsafe {
+            match self.discriminant {
+                Err => union_U1 {
+                    Err: self.payload.Err.clone(),
+                },
+                Ok => union_U1 {
+                    Ok: self.payload.Ok.clone(),
+                },
+            }
+        };
+
+        Self {
+            discriminant: self.discriminant,
+            payload,
+        }
+    }
+}
+
+impl core::fmt::Debug for U1 {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        use discriminant_U1::*;
+
+        unsafe {
+            match self.discriminant {
+                Err => {
+                    let field: &U2 = &self.payload.Err;
+                    f.debug_tuple("U1::Err").field(field).finish()
+                }
+                Ok => {
+                    let field: &roc_std::RocStr = &self.payload.Ok;
+                    f.debug_tuple("U1::Ok").field(field).finish()
+                }
+            }
+        }
+    }
+}
+
+impl Eq for U1 {}
+
+impl PartialEq for U1 {
+    fn eq(&self, other: &Self) -> bool {
+        use discriminant_U1::*;
+
+        if self.discriminant != other.discriminant {
+            return false;
+        }
+
+        unsafe {
+            match self.discriminant {
+                Err => self.payload.Err == other.payload.Err,
+                Ok => self.payload.Ok == other.payload.Ok,
+            }
+        }
+    }
+}
+
+impl Ord for U1 {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.partial_cmp(other).unwrap()
+    }
+}
+
+impl PartialOrd for U1 {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        use discriminant_U1::*;
+
+        use std::cmp::Ordering::*;
+
+        match self.discriminant.cmp(&other.discriminant) {
+            Less => Option::Some(Less),
+            Greater => Option::Some(Greater),
+            Equal => unsafe {
+                match self.discriminant {
+                    Err => self.payload.Err.partial_cmp(&other.payload.Err),
+                    Ok => self.payload.Ok.partial_cmp(&other.payload.Ok),
+                }
+            },
+        }
+    }
+}
+
+impl core::hash::Hash for U1 {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        use discriminant_U1::*;
+
+        unsafe {
+            match self.discriminant {
+                Err => self.payload.Err.hash(state),
+                Ok => self.payload.Ok.hash(state),
+            }
+        }
+    }
+}
+
+impl U1 {
+    pub fn unwrap_Err(mut self) -> U2 {
+        debug_assert_eq!(self.discriminant, discriminant_U1::Err);
+        unsafe { self.payload.Err }
+    }
+
+    pub fn borrow_Err(&self) -> U2 {
+        debug_assert_eq!(self.discriminant, discriminant_U1::Err);
+        unsafe { self.payload.Err }
+    }
+
+    pub fn borrow_mut_Err(&mut self) -> &mut U2 {
+        debug_assert_eq!(self.discriminant, discriminant_U1::Err);
+        unsafe { &mut self.payload.Err }
+    }
+
+    pub fn is_Err(&self) -> bool {
+        matches!(self.discriminant, discriminant_U1::Err)
+    }
+
+    pub fn unwrap_Ok(mut self) -> roc_std::RocStr {
+        debug_assert_eq!(self.discriminant, discriminant_U1::Ok);
+        unsafe { core::mem::ManuallyDrop::take(&mut self.payload.Ok) }
+    }
+
+    pub fn borrow_Ok(&self) -> &roc_std::RocStr {
+        debug_assert_eq!(self.discriminant, discriminant_U1::Ok);
+        use core::borrow::Borrow;
+        unsafe { self.payload.Ok.borrow() }
+    }
+
+    pub fn borrow_mut_Ok(&mut self) -> &mut roc_std::RocStr {
+        debug_assert_eq!(self.discriminant, discriminant_U1::Ok);
+        use core::borrow::BorrowMut;
+        unsafe { self.payload.Ok.borrow_mut() }
+    }
+
+    pub fn is_Ok(&self) -> bool {
+        matches!(self.discriminant, discriminant_U1::Ok)
+    }
+}
+
+impl U1 {
+    pub fn Err(payload: U2) -> Self {
+        Self {
+            discriminant: discriminant_U1::Err,
+            payload: union_U1 { Err: payload },
+        }
+    }
+
+    pub fn Ok(payload: roc_std::RocStr) -> Self {
+        Self {
+            discriminant: discriminant_U1::Ok,
+            payload: union_U1 {
+                Ok: core::mem::ManuallyDrop::new(payload),
+            },
+        }
+    }
+}
+
+impl Drop for U1 {
+    fn drop(&mut self) {
+        // Drop the payloads
+        match self.discriminant() {
+            discriminant_U1::Err => {}
+            discriminant_U1::Ok => unsafe { core::mem::ManuallyDrop::drop(&mut self.payload.Ok) },
+        }
+    }
+}
+
+impl roc_std::RocRefcounted for U1 {
+    fn inc(&mut self) {
+        unimplemented!();
+    }
+    fn dec(&mut self) {
+        unimplemented!();
+    }
+    fn is_refcounted() -> bool {
+        true
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[repr(C)]
+pub struct R1 {
+    pub model: RocBox<()>,
+    pub to_backend: U1,
+}
+
+impl roc_std::RocRefcounted for R1 {
+    fn inc(&mut self) {
+        self.to_backend.inc();
+    }
+    fn dec(&mut self) {
+        self.to_backend.dec();
+    }
+    fn is_refcounted() -> bool {
+        true
+    }
+}
 
 #[derive(Clone, Default, Debug, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
@@ -42,14 +327,14 @@ impl roc_std::RocRefcounted for InternalAttr_Attribute {
 
 #[derive(Clone, Default, Debug, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
-pub struct R2 {
+pub struct R3 {
     pub id: roc_std::RocStr,
     pub tagName: roc_std::RocStr,
     pub value: roc_std::RocStr,
     pub checked: bool,
 }
 
-impl roc_std::RocRefcounted for R2 {
+impl roc_std::RocRefcounted for R3 {
     fn inc(&mut self) {
         self.id.inc();
         self.tagName.inc();
@@ -72,10 +357,10 @@ pub struct InternalEvent {
     pub clientX: i32,
     pub clientY: i32,
     pub code: roc_std::RocStr,
-    pub currentTarget: R2,
+    pub currentTarget: R3,
     pub eventType: roc_std::RocStr,
     pub key: roc_std::RocStr,
-    pub target: R2,
+    pub target: R3,
     pub altKey: bool,
     pub ctrlKey: bool,
     pub metaKey: bool,
@@ -106,17 +391,17 @@ impl roc_std::RocRefcounted for InternalEvent {
 
 #[repr(C)]
 #[derive(Debug, Clone)]
-pub struct RocFunction_3546 {
+pub struct RocFunction_3569 {
     closure_data: Vec<u8>,
 }
 
-impl RocFunction_3546 {
-    pub fn force_thunk(mut self, arg0: InternalEvent) -> u32 {
+impl RocFunction_3569 {
+    pub fn force_thunk(mut self, arg0: InternalEvent) -> RocBox<()> {
         extern "C" {
             fn roc__frontend_view_for_host_0_caller(
                 arg0: *const InternalEvent,
                 closure_data: *mut u8,
-                output: *mut u32,
+                output: *mut RocBox<()>,
             );
         }
 
@@ -133,13 +418,13 @@ impl RocFunction_3546 {
         }
     }
 }
-roc_refcounted_noop_impl!(RocFunction_3546);
+roc_refcounted_noop_impl!(RocFunction_3569);
 
 #[derive(Clone, Debug)]
 #[repr(C)]
 pub struct InternalAttr_OnEvent {
     pub f0: roc_std::RocStr,
-    pub f1: RocFunction_3546,
+    pub f1: RocFunction_3569,
 }
 
 impl roc_std::RocRefcounted for InternalAttr_OnEvent {
@@ -1220,13 +1505,13 @@ impl roc_std::RocRefcounted for InternalAttr {
 
 #[derive(Clone, Debug)]
 #[repr(C)]
-pub struct R1 {
+pub struct R2 {
     pub attrs: roc_std::RocList<InternalAttr>,
     pub children: roc_std::RocList<InternalHtml>,
     pub tag: roc_std::RocStr,
 }
 
-impl roc_std::RocRefcounted for R1 {
+impl roc_std::RocRefcounted for R2 {
     fn inc(&mut self) {
         self.attrs.inc();
         self.children.inc();
@@ -1245,7 +1530,7 @@ impl roc_std::RocRefcounted for R1 {
 #[derive(Clone, Debug)]
 #[repr(transparent)]
 pub struct InternalHtml_Element {
-    pub f0: R1,
+    pub f0: R2,
 }
 
 impl roc_std::RocRefcounted for InternalHtml_Element {
@@ -1343,7 +1628,7 @@ impl InternalHtml {
         matches!(self.discriminant(), discriminant_InternalHtml::Element)
     }
 
-    pub fn Element(f0: R1) -> Self {
+    pub fn Element(f0: R2) -> Self {
         let tag_id = discriminant_InternalHtml::Element;
 
         let payload = InternalHtml_Element { f0 };
@@ -1357,7 +1642,7 @@ impl InternalHtml {
         Self((ptr as usize | tag_id as usize) as *mut _)
     }
 
-    pub fn get_Element_f0(&self) -> &R1 {
+    pub fn get_Element_f0(&self) -> &R2 {
         debug_assert!(self.is_Element());
 
         // extern "C" {
@@ -1504,9 +1789,9 @@ impl roc_std::RocRefcounted for union_InternalHtml {
     }
 }
 
-pub fn frontend_init_for_host(arg0: u32) -> u32 {
+pub fn frontend_init_for_host(arg0: u32) -> RocBox<()> {
     extern "C" {
-        fn roc__frontend_init_for_host_1_exposed_generic(_: *mut u32, _: u32);
+        fn roc__frontend_init_for_host_1_exposed_generic(_: *mut RocBox<()>, _: u32);
     }
 
     let mut ret = core::mem::MaybeUninit::uninit();
@@ -1518,17 +1803,34 @@ pub fn frontend_init_for_host(arg0: u32) -> u32 {
     }
 }
 
-pub fn frontend_view_for_host(arg0: u32) -> InternalHtml {
+pub fn frontend_view_for_host(model: RocBox<()>) -> InternalHtml {
     extern "C" {
-        fn roc__frontend_view_for_host_1_exposed_generic(_: *mut InternalHtml, _: u32);
+        fn roc__frontend_view_for_host_1_exposed_generic(_: *mut InternalHtml, _: RocBox<()>);
     }
 
     let mut ret = core::mem::MaybeUninit::uninit();
 
     unsafe {
-        roc__frontend_view_for_host_1_exposed_generic(ret.as_mut_ptr(), arg0);
+        roc__frontend_view_for_host_1_exposed_generic(ret.as_mut_ptr(), model);
 
         ret.assume_init()
     }
 }
 
+pub fn frontend_update_for_host(model: RocBox<()>, boxed_msg: RocBox<()>) -> R1 {
+    extern "C" {
+        fn roc__frontend_update_for_host_1_exposed_generic(
+            ret: *mut R1,
+            model: RocBox<()>,
+            msg: RocBox<()>,
+        );
+    }
+
+    let mut ret = core::mem::MaybeUninit::uninit();
+
+    unsafe {
+        roc__frontend_update_for_host_1_exposed_generic(ret.as_mut_ptr(), model, boxed_msg);
+
+        ret.assume_init()
+    }
+}

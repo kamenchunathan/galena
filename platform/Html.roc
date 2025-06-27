@@ -1,6 +1,8 @@
 module [
     Html,
     Attr,
+    map,
+    
     # HTML elements
     text,
     div,
@@ -88,6 +90,7 @@ module [
 
 import Internal.Html exposing [
     InternalHtml,
+    map_,
     text_,
     div_,
     p_,
@@ -177,6 +180,8 @@ import Internal.Attr exposing [
 # Type aliases
 Html msg : InternalHtml msg
 Attr msg : InternalAttr msg
+
+map = map_
 
 # HTML elements
 text = text_

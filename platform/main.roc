@@ -36,10 +36,10 @@ frontend_update_for_host! :
         to_backend : Result Str [NoOp],
     }
 frontend_update_for_host! = |boxed_model, boxed_msg|
-    model = Box.unbox boxed_model
     app = Internal.Frontend.inner frontendApp
+    model = Box.unbox boxed_model
     msg = Box.unbox boxed_msg
-
+    
     (updated_model, m_to_backend_msg) = app.update! msg model
     {
         model: Box.box updated_model,
@@ -75,58 +75,13 @@ frontend_handle_ws_event_for_host! = |boxed, msg_bytes|
             ),
     }
 
-# frontend_view_for_host! :
-#     Box FrontendModel
-#     => {
-#         view : List U8,
-#         model : Box FrontendModel,
-#         callback! : U64 => Box FrontendMsg,
-#     }
-# frontend_view_for_host! = |boxed|
-#     model = Box.unbox boxed
-#     (encoded, _) =
-#         (Internal.Frontend.inner frontendApp).view model
-#         |> InternalView.repr_
-#     {
-#         model: boxed,
-#         view: encoded,
-#         callback!: |callback_id|
-#             app = Internal.Frontend.inner frontendApp
-#             (_, callbacks) =
-#                 app.view (Box.unbox boxed)
-#                 |> InternalView.repr_
-#             when List.get callbacks callback_id is
-#                 Ok cb ->
-#                     # TODO: Replace this with a proper event type
-#                     Box.box (cb {})
-#
-#                 Err _ ->
-#                     crash "Callback list is empty",
-#     }
-
-frontend_view_for_host! : Box FrontendModel => Html.Html FrontendMsg
+frontend_view_for_host! : Box FrontendModel => Html.Html (Box FrontendMsg)
 frontend_view_for_host! = |boxed|
     model = Box.unbox boxed
     app = Internal.Frontend.inner frontendApp
-    app.view model
-    # Html.text ""
+    app.view model |> Html.map Box.box 
 
-# handle_dom_event : Box FrontendModel -> (U64 => Box FrontendMsg)
-# handle_dom_event = |boxed_model|
-#     |callback_id|
-#         print! "handle_dom_event ${Inspect.to_str model}"
-#         print! (Inspect.to_str callback_id)
-#         app = Internal.Frontend.inner frontendApp
-#         (_, callbacks) =
-#             app.view model
-#             |> InternalView.repr_
-#         when List.get callbacks callback_id is
-#             Ok cb ->
-#                 # TODO: Replace this with  a proper event type
-#                 Box.box (cb {})
-#             Err _ ->
-#                 crash "Callback list is empty"
-#
+
 backend_init_for_host! : Box BackendModel
 backend_init_for_host! =
     (InternalBackend.inner backendApp).init!

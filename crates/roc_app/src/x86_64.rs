@@ -16,11 +16,296 @@
 #![allow(clippy::clone_on_copy)]
 #![allow(clippy::non_canonical_partial_ord_impl)]
 
-
-use roc_std::RocRefcounted;
 use roc_std::roc_refcounted_noop_impl;
+use roc_std::RocBox;
+use roc_std::RocRefcounted;
 
-#[derive(Clone, Default, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, )]
+#[derive(Clone, Copy, Default, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[repr(transparent)]
+pub struct U2();
+
+impl U2 {
+    /// A tag named NoOp, which has no payload.
+    pub const NoOp: Self = Self();
+
+    /// Other `into_` methods return a payload, but since NoOp tag
+    /// has no payload, this does nothing and is only here for completeness.
+    pub fn into_NoOp(self) {
+        ()
+    }
+
+    /// Other `as_` methods return a payload, but since NoOp tag
+    /// has no payload, this does nothing and is only here for completeness.
+    pub fn as_NoOp(&self) {
+        ()
+    }
+}
+
+impl core::fmt::Debug for U2 {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("U2::NoOp")
+    }
+}
+
+roc_refcounted_noop_impl!(U2);
+
+#[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[repr(u8)]
+pub enum discriminant_U1 {
+    Err = 0,
+    Ok = 1,
+}
+
+impl core::fmt::Debug for discriminant_U1 {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Err => f.write_str("discriminant_U1::Err"),
+            Self::Ok => f.write_str("discriminant_U1::Ok"),
+        }
+    }
+}
+
+roc_refcounted_noop_impl!(discriminant_U1);
+
+#[repr(C, align(8))]
+pub union union_U1 {
+    Err: U2,
+    Ok: core::mem::ManuallyDrop<roc_std::RocStr>,
+}
+
+// TODO(@roc-lang): See https://github.com/roc-lang/roc/issues/6012
+// const _SIZE_CHECK_union_U1: () = assert!(core::mem::size_of::<union_U1>() == 24);
+const _ALIGN_CHECK_union_U1: () = assert!(core::mem::align_of::<union_U1>() == 8);
+
+const _SIZE_CHECK_U1: () = assert!(core::mem::size_of::<U1>() == 32);
+const _ALIGN_CHECK_U1: () = assert!(core::mem::align_of::<U1>() == 8);
+
+impl U1 {
+    /// Returns which variant this tag union holds. Note that this never includes a payload!
+    pub fn discriminant(&self) -> discriminant_U1 {
+        unsafe {
+            let bytes = core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(self);
+
+            core::mem::transmute::<u8, discriminant_U1>(*bytes.as_ptr().add(24))
+        }
+    }
+
+    /// Internal helper
+    fn set_discriminant(&mut self, discriminant: discriminant_U1) {
+        let discriminant_ptr: *mut discriminant_U1 = (self as *mut U1).cast();
+
+        unsafe {
+            *(discriminant_ptr.add(24)) = discriminant;
+        }
+    }
+}
+
+#[repr(C)]
+pub struct U1 {
+    payload: union_U1,
+    discriminant: discriminant_U1,
+}
+
+impl Clone for U1 {
+    fn clone(&self) -> Self {
+        use discriminant_U1::*;
+
+        let payload = unsafe {
+            match self.discriminant {
+                Err => union_U1 {
+                    Err: self.payload.Err.clone(),
+                },
+                Ok => union_U1 {
+                    Ok: self.payload.Ok.clone(),
+                },
+            }
+        };
+
+        Self {
+            discriminant: self.discriminant,
+            payload,
+        }
+    }
+}
+
+impl core::fmt::Debug for U1 {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        use discriminant_U1::*;
+
+        unsafe {
+            match self.discriminant {
+                Err => {
+                    let field: &U2 = &self.payload.Err;
+                    f.debug_tuple("U1::Err").field(field).finish()
+                }
+                Ok => {
+                    let field: &roc_std::RocStr = &self.payload.Ok;
+                    f.debug_tuple("U1::Ok").field(field).finish()
+                }
+            }
+        }
+    }
+}
+
+impl Eq for U1 {}
+
+impl PartialEq for U1 {
+    fn eq(&self, other: &Self) -> bool {
+        use discriminant_U1::*;
+
+        if self.discriminant != other.discriminant {
+            return false;
+        }
+
+        unsafe {
+            match self.discriminant {
+                Err => self.payload.Err == other.payload.Err,
+                Ok => self.payload.Ok == other.payload.Ok,
+            }
+        }
+    }
+}
+
+impl Ord for U1 {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.partial_cmp(other).unwrap()
+    }
+}
+
+impl PartialOrd for U1 {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        use discriminant_U1::*;
+
+        use std::cmp::Ordering::*;
+
+        match self.discriminant.cmp(&other.discriminant) {
+            Less => Option::Some(Less),
+            Greater => Option::Some(Greater),
+            Equal => unsafe {
+                match self.discriminant {
+                    Err => self.payload.Err.partial_cmp(&other.payload.Err),
+                    Ok => self.payload.Ok.partial_cmp(&other.payload.Ok),
+                }
+            },
+        }
+    }
+}
+
+impl core::hash::Hash for U1 {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        use discriminant_U1::*;
+
+        unsafe {
+            match self.discriminant {
+                Err => self.payload.Err.hash(state),
+                Ok => self.payload.Ok.hash(state),
+            }
+        }
+    }
+}
+
+impl U1 {
+    pub fn unwrap_Err(mut self) -> U2 {
+        debug_assert_eq!(self.discriminant, discriminant_U1::Err);
+        unsafe { self.payload.Err }
+    }
+
+    pub fn borrow_Err(&self) -> U2 {
+        debug_assert_eq!(self.discriminant, discriminant_U1::Err);
+        unsafe { self.payload.Err }
+    }
+
+    pub fn borrow_mut_Err(&mut self) -> &mut U2 {
+        debug_assert_eq!(self.discriminant, discriminant_U1::Err);
+        unsafe { &mut self.payload.Err }
+    }
+
+    pub fn is_Err(&self) -> bool {
+        matches!(self.discriminant, discriminant_U1::Err)
+    }
+
+    pub fn unwrap_Ok(mut self) -> roc_std::RocStr {
+        debug_assert_eq!(self.discriminant, discriminant_U1::Ok);
+        unsafe { core::mem::ManuallyDrop::take(&mut self.payload.Ok) }
+    }
+
+    pub fn borrow_Ok(&self) -> &roc_std::RocStr {
+        debug_assert_eq!(self.discriminant, discriminant_U1::Ok);
+        use core::borrow::Borrow;
+        unsafe { self.payload.Ok.borrow() }
+    }
+
+    pub fn borrow_mut_Ok(&mut self) -> &mut roc_std::RocStr {
+        debug_assert_eq!(self.discriminant, discriminant_U1::Ok);
+        use core::borrow::BorrowMut;
+        unsafe { self.payload.Ok.borrow_mut() }
+    }
+
+    pub fn is_Ok(&self) -> bool {
+        matches!(self.discriminant, discriminant_U1::Ok)
+    }
+}
+
+impl U1 {
+    pub fn Err(payload: U2) -> Self {
+        Self {
+            discriminant: discriminant_U1::Err,
+            payload: union_U1 { Err: payload },
+        }
+    }
+
+    pub fn Ok(payload: roc_std::RocStr) -> Self {
+        Self {
+            discriminant: discriminant_U1::Ok,
+            payload: union_U1 {
+                Ok: core::mem::ManuallyDrop::new(payload),
+            },
+        }
+    }
+}
+
+impl Drop for U1 {
+    fn drop(&mut self) {
+        // Drop the payloads
+        match self.discriminant() {
+            discriminant_U1::Err => {}
+            discriminant_U1::Ok => unsafe { core::mem::ManuallyDrop::drop(&mut self.payload.Ok) },
+        }
+    }
+}
+
+impl roc_std::RocRefcounted for U1 {
+    fn inc(&mut self) {
+        unimplemented!();
+    }
+    fn dec(&mut self) {
+        unimplemented!();
+    }
+    fn is_refcounted() -> bool {
+        true
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[repr(C)]
+pub struct R1 {
+    pub to_backend: U1,
+    pub model: RocBox<()>,
+}
+
+impl roc_std::RocRefcounted for R1 {
+    fn inc(&mut self) {
+        self.to_backend.inc();
+    }
+    fn dec(&mut self) {
+        self.to_backend.dec();
+    }
+    fn is_refcounted() -> bool {
+        true
+    }
+}
+
+#[derive(Clone, Default, Debug, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
 pub struct InternalAttr_Attribute {
     pub f0: roc_std::RocStr,
@@ -29,55 +314,51 @@ pub struct InternalAttr_Attribute {
 
 impl roc_std::RocRefcounted for InternalAttr_Attribute {
     fn inc(&mut self) {
-         self.f0.inc();
-     self.f1.inc();
-
+        self.f0.inc();
+        self.f1.inc();
     }
     fn dec(&mut self) {
-         self.f0.dec();
-     self.f1.dec();
-
+        self.f0.dec();
+        self.f1.dec();
     }
     fn is_refcounted() -> bool {
         true
     }
 }
 
-#[derive(Clone, Default, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, )]
+#[derive(Clone, Default, Debug, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
-pub struct R2 {
+pub struct R3 {
     pub id: roc_std::RocStr,
     pub tagName: roc_std::RocStr,
     pub value: roc_std::RocStr,
     pub checked: bool,
 }
 
-impl roc_std::RocRefcounted for R2 {
+impl roc_std::RocRefcounted for R3 {
     fn inc(&mut self) {
-         self.id.inc();
-     self.tagName.inc();
-     self.value.inc();
-
+        self.id.inc();
+        self.tagName.inc();
+        self.value.inc();
     }
     fn dec(&mut self) {
-         self.id.dec();
-     self.tagName.dec();
-     self.value.dec();
-
+        self.id.dec();
+        self.tagName.dec();
+        self.value.dec();
     }
     fn is_refcounted() -> bool {
         true
     }
 }
 
-#[derive(Clone, Default, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, )]
+#[derive(Clone, Default, Debug, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
 pub struct InternalEvent {
     pub code: roc_std::RocStr,
-    pub currentTarget: R2,
+    pub currentTarget: R3,
     pub eventType: roc_std::RocStr,
     pub key: roc_std::RocStr,
-    pub target: R2,
+    pub target: R3,
     pub button: i32,
     pub clientX: i32,
     pub clientY: i32,
@@ -91,38 +372,38 @@ pub struct InternalEvent {
 
 impl roc_std::RocRefcounted for InternalEvent {
     fn inc(&mut self) {
-         self.code.inc();
-     self.currentTarget.inc();
-     self.eventType.inc();
-     self.key.inc();
-     self.target.inc();
-
+        self.code.inc();
+        self.currentTarget.inc();
+        self.eventType.inc();
+        self.key.inc();
+        self.target.inc();
     }
     fn dec(&mut self) {
-         self.code.dec();
-     self.currentTarget.dec();
-     self.eventType.dec();
-     self.key.dec();
-     self.target.dec();
-
+        self.code.dec();
+        self.currentTarget.dec();
+        self.eventType.dec();
+        self.key.dec();
+        self.target.dec();
     }
     fn is_refcounted() -> bool {
         true
     }
 }
 
-
-
 #[repr(C)]
-#[derive(Debug)]
-pub struct RocFunction_3546 {
+#[derive(Clone, Debug)]
+pub struct RocFunction_3569 {
     closure_data: Vec<u8>,
 }
 
-impl RocFunction_3546 {
-    pub fn force_thunk(mut self, arg0: InternalEvent) -> u32 {
+impl RocFunction_3569 {
+    pub fn force_thunk(mut self, arg0: InternalEvent) -> RocBox<()> {
         extern "C" {
-            fn roc__main_for_host_0_caller(arg0: *const InternalEvent, closure_data: *mut u8, output: *mut u32);
+            fn roc__main_for_host_0_caller(
+                arg0: *const InternalEvent,
+                closure_data: *mut u8,
+                output: *mut RocBox<()>,
+            );
         }
 
         let mut output = core::mem::MaybeUninit::uninit();
@@ -133,30 +414,29 @@ impl RocFunction_3546 {
             output.assume_init()
         }
     }
-}roc_refcounted_noop_impl!(RocFunction_3546);
+}
+roc_refcounted_noop_impl!(RocFunction_3569);
 
-#[derive(Clone, Debug, )]
+#[derive(Clone, Debug)]
 #[repr(C)]
 pub struct InternalAttr_OnEvent {
     pub f0: roc_std::RocStr,
-    pub f1: RocFunction_3546,
+    pub f1: RocFunction_3569,
 }
 
 impl roc_std::RocRefcounted for InternalAttr_OnEvent {
     fn inc(&mut self) {
-         self.f0.inc();
-
+        self.f0.inc();
     }
     fn dec(&mut self) {
-         self.f0.dec();
-
+        self.f0.dec();
     }
     fn is_refcounted() -> bool {
         true
     }
 }
 
-#[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash, )]
+#[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(u8)]
 pub enum discriminant_InternalAttr {
     Alt = 0,
@@ -245,7 +525,8 @@ pub union union_InternalAttr {
 
 // TODO(@roc-lang): See https://github.com/roc-lang/roc/issues/6012
 // const _SIZE_CHECK_union_InternalAttr: () = assert!(core::mem::size_of::<union_InternalAttr>() == 56);
-const _ALIGN_CHECK_union_InternalAttr: () = assert!(core::mem::align_of::<union_InternalAttr>() == 8);
+const _ALIGN_CHECK_union_InternalAttr: () =
+    assert!(core::mem::align_of::<union_InternalAttr>() == 8);
 
 const _SIZE_CHECK_InternalAttr: () = assert!(core::mem::size_of::<InternalAttr>() == 56);
 const _ALIGN_CHECK_InternalAttr: () = assert!(core::mem::align_of::<InternalAttr>() == 8);
@@ -370,102 +651,121 @@ impl core::fmt::Debug for InternalAttr {
                 Alt => {
                     let field: &roc_std::RocStr = &self.payload.Alt;
                     f.debug_tuple("InternalAttr::Alt").field(field).finish()
-                },
+                }
                 Attribute => {
                     let field: &InternalAttr_Attribute = &self.payload.Attribute;
-                    f.debug_tuple("InternalAttr::Attribute").field(field).finish()
-                },
+                    f.debug_tuple("InternalAttr::Attribute")
+                        .field(field)
+                        .finish()
+                }
                 Autocomplete => {
                     let field: &roc_std::RocStr = &self.payload.Autocomplete;
-                    f.debug_tuple("InternalAttr::Autocomplete").field(field).finish()
-                },
+                    f.debug_tuple("InternalAttr::Autocomplete")
+                        .field(field)
+                        .finish()
+                }
                 Checked => {
                     let field: &bool = &self.payload.Checked;
                     f.debug_tuple("InternalAttr::Checked").field(field).finish()
-                },
+                }
                 Class => {
                     let field: &roc_std::RocStr = &self.payload.Class;
                     f.debug_tuple("InternalAttr::Class").field(field).finish()
-                },
+                }
                 DataAttribute => {
                     let field: &InternalAttr_Attribute = &self.payload.DataAttribute;
-                    f.debug_tuple("InternalAttr::DataAttribute").field(field).finish()
-                },
+                    f.debug_tuple("InternalAttr::DataAttribute")
+                        .field(field)
+                        .finish()
+                }
                 Disabled => {
                     let field: &bool = &self.payload.Disabled;
-                    f.debug_tuple("InternalAttr::Disabled").field(field).finish()
-                },
+                    f.debug_tuple("InternalAttr::Disabled")
+                        .field(field)
+                        .finish()
+                }
                 Hidden => {
                     let field: &bool = &self.payload.Hidden;
                     f.debug_tuple("InternalAttr::Hidden").field(field).finish()
-                },
+                }
                 Href => {
                     let field: &roc_std::RocStr = &self.payload.Href;
                     f.debug_tuple("InternalAttr::Href").field(field).finish()
-                },
+                }
                 Id => {
                     let field: &roc_std::RocStr = &self.payload.Id;
                     f.debug_tuple("InternalAttr::Id").field(field).finish()
-                },
+                }
                 Multiple => {
                     let field: &bool = &self.payload.Multiple;
-                    f.debug_tuple("InternalAttr::Multiple").field(field).finish()
-                },
+                    f.debug_tuple("InternalAttr::Multiple")
+                        .field(field)
+                        .finish()
+                }
                 Name => {
                     let field: &roc_std::RocStr = &self.payload.Name;
                     f.debug_tuple("InternalAttr::Name").field(field).finish()
-                },
+                }
                 OnEvent => {
                     let field: &InternalAttr_OnEvent = &self.payload.OnEvent;
                     f.debug_tuple("InternalAttr::OnEvent").field(field).finish()
-                },
+                }
                 Placeholder => {
                     let field: &roc_std::RocStr = &self.payload.Placeholder;
-                    f.debug_tuple("InternalAttr::Placeholder").field(field).finish()
-                },
+                    f.debug_tuple("InternalAttr::Placeholder")
+                        .field(field)
+                        .finish()
+                }
                 Readonly => {
                     let field: &bool = &self.payload.Readonly;
-                    f.debug_tuple("InternalAttr::Readonly").field(field).finish()
-                },
+                    f.debug_tuple("InternalAttr::Readonly")
+                        .field(field)
+                        .finish()
+                }
                 Required => {
                     let field: &bool = &self.payload.Required;
-                    f.debug_tuple("InternalAttr::Required").field(field).finish()
-                },
+                    f.debug_tuple("InternalAttr::Required")
+                        .field(field)
+                        .finish()
+                }
                 Selected => {
                     let field: &bool = &self.payload.Selected;
-                    f.debug_tuple("InternalAttr::Selected").field(field).finish()
-                },
+                    f.debug_tuple("InternalAttr::Selected")
+                        .field(field)
+                        .finish()
+                }
                 Src => {
                     let field: &roc_std::RocStr = &self.payload.Src;
                     f.debug_tuple("InternalAttr::Src").field(field).finish()
-                },
+                }
                 Style => {
                     let field: &roc_std::RocStr = &self.payload.Style;
                     f.debug_tuple("InternalAttr::Style").field(field).finish()
-                },
+                }
                 Tabindex => {
                     let field: &i32 = &self.payload.Tabindex;
-                    f.debug_tuple("InternalAttr::Tabindex").field(field).finish()
-                },
+                    f.debug_tuple("InternalAttr::Tabindex")
+                        .field(field)
+                        .finish()
+                }
                 Title => {
                     let field: &roc_std::RocStr = &self.payload.Title;
                     f.debug_tuple("InternalAttr::Title").field(field).finish()
-                },
+                }
                 Type => {
                     let field: &roc_std::RocStr = &self.payload.Type;
                     f.debug_tuple("InternalAttr::Type").field(field).finish()
-                },
+                }
                 Value => {
                     let field: &roc_std::RocStr = &self.payload.Value;
                     f.debug_tuple("InternalAttr::Value").field(field).finish()
-                },
+                }
             }
         }
     }
 }
 
 impl InternalAttr {
-
     pub fn unwrap_Alt(mut self) -> roc_std::RocStr {
         debug_assert_eq!(self.discriminant, discriminant_InternalAttr::Alt);
         unsafe { core::mem::ManuallyDrop::take(&mut self.payload.Alt) }
@@ -474,13 +774,13 @@ impl InternalAttr {
     pub fn borrow_Alt(&self) -> &roc_std::RocStr {
         debug_assert_eq!(self.discriminant, discriminant_InternalAttr::Alt);
         use core::borrow::Borrow;
-unsafe { self.payload.Alt.borrow() }
+        unsafe { self.payload.Alt.borrow() }
     }
 
     pub fn borrow_mut_Alt(&mut self) -> &mut roc_std::RocStr {
         debug_assert_eq!(self.discriminant, discriminant_InternalAttr::Alt);
         use core::borrow::BorrowMut;
-unsafe { self.payload.Alt.borrow_mut() }
+        unsafe { self.payload.Alt.borrow_mut() }
     }
 
     pub fn is_Alt(&self) -> bool {
@@ -495,13 +795,13 @@ unsafe { self.payload.Alt.borrow_mut() }
     pub fn borrow_Attribute(&self) -> &InternalAttr_Attribute {
         debug_assert_eq!(self.discriminant, discriminant_InternalAttr::Attribute);
         use core::borrow::Borrow;
-unsafe { self.payload.Attribute.borrow() }
+        unsafe { self.payload.Attribute.borrow() }
     }
 
     pub fn borrow_mut_Attribute(&mut self) -> &mut InternalAttr_Attribute {
         debug_assert_eq!(self.discriminant, discriminant_InternalAttr::Attribute);
         use core::borrow::BorrowMut;
-unsafe { self.payload.Attribute.borrow_mut() }
+        unsafe { self.payload.Attribute.borrow_mut() }
     }
 
     pub fn is_Attribute(&self) -> bool {
@@ -516,13 +816,13 @@ unsafe { self.payload.Attribute.borrow_mut() }
     pub fn borrow_Autocomplete(&self) -> &roc_std::RocStr {
         debug_assert_eq!(self.discriminant, discriminant_InternalAttr::Autocomplete);
         use core::borrow::Borrow;
-unsafe { self.payload.Autocomplete.borrow() }
+        unsafe { self.payload.Autocomplete.borrow() }
     }
 
     pub fn borrow_mut_Autocomplete(&mut self) -> &mut roc_std::RocStr {
         debug_assert_eq!(self.discriminant, discriminant_InternalAttr::Autocomplete);
         use core::borrow::BorrowMut;
-unsafe { self.payload.Autocomplete.borrow_mut() }
+        unsafe { self.payload.Autocomplete.borrow_mut() }
     }
 
     pub fn is_Autocomplete(&self) -> bool {
@@ -556,13 +856,13 @@ unsafe { self.payload.Autocomplete.borrow_mut() }
     pub fn borrow_Class(&self) -> &roc_std::RocStr {
         debug_assert_eq!(self.discriminant, discriminant_InternalAttr::Class);
         use core::borrow::Borrow;
-unsafe { self.payload.Class.borrow() }
+        unsafe { self.payload.Class.borrow() }
     }
 
     pub fn borrow_mut_Class(&mut self) -> &mut roc_std::RocStr {
         debug_assert_eq!(self.discriminant, discriminant_InternalAttr::Class);
         use core::borrow::BorrowMut;
-unsafe { self.payload.Class.borrow_mut() }
+        unsafe { self.payload.Class.borrow_mut() }
     }
 
     pub fn is_Class(&self) -> bool {
@@ -577,13 +877,13 @@ unsafe { self.payload.Class.borrow_mut() }
     pub fn borrow_DataAttribute(&self) -> &InternalAttr_Attribute {
         debug_assert_eq!(self.discriminant, discriminant_InternalAttr::DataAttribute);
         use core::borrow::Borrow;
-unsafe { self.payload.DataAttribute.borrow() }
+        unsafe { self.payload.DataAttribute.borrow() }
     }
 
     pub fn borrow_mut_DataAttribute(&mut self) -> &mut InternalAttr_Attribute {
         debug_assert_eq!(self.discriminant, discriminant_InternalAttr::DataAttribute);
         use core::borrow::BorrowMut;
-unsafe { self.payload.DataAttribute.borrow_mut() }
+        unsafe { self.payload.DataAttribute.borrow_mut() }
     }
 
     pub fn is_DataAttribute(&self) -> bool {
@@ -636,13 +936,13 @@ unsafe { self.payload.DataAttribute.borrow_mut() }
     pub fn borrow_Href(&self) -> &roc_std::RocStr {
         debug_assert_eq!(self.discriminant, discriminant_InternalAttr::Href);
         use core::borrow::Borrow;
-unsafe { self.payload.Href.borrow() }
+        unsafe { self.payload.Href.borrow() }
     }
 
     pub fn borrow_mut_Href(&mut self) -> &mut roc_std::RocStr {
         debug_assert_eq!(self.discriminant, discriminant_InternalAttr::Href);
         use core::borrow::BorrowMut;
-unsafe { self.payload.Href.borrow_mut() }
+        unsafe { self.payload.Href.borrow_mut() }
     }
 
     pub fn is_Href(&self) -> bool {
@@ -657,13 +957,13 @@ unsafe { self.payload.Href.borrow_mut() }
     pub fn borrow_Id(&self) -> &roc_std::RocStr {
         debug_assert_eq!(self.discriminant, discriminant_InternalAttr::Id);
         use core::borrow::Borrow;
-unsafe { self.payload.Id.borrow() }
+        unsafe { self.payload.Id.borrow() }
     }
 
     pub fn borrow_mut_Id(&mut self) -> &mut roc_std::RocStr {
         debug_assert_eq!(self.discriminant, discriminant_InternalAttr::Id);
         use core::borrow::BorrowMut;
-unsafe { self.payload.Id.borrow_mut() }
+        unsafe { self.payload.Id.borrow_mut() }
     }
 
     pub fn is_Id(&self) -> bool {
@@ -697,13 +997,13 @@ unsafe { self.payload.Id.borrow_mut() }
     pub fn borrow_Name(&self) -> &roc_std::RocStr {
         debug_assert_eq!(self.discriminant, discriminant_InternalAttr::Name);
         use core::borrow::Borrow;
-unsafe { self.payload.Name.borrow() }
+        unsafe { self.payload.Name.borrow() }
     }
 
     pub fn borrow_mut_Name(&mut self) -> &mut roc_std::RocStr {
         debug_assert_eq!(self.discriminant, discriminant_InternalAttr::Name);
         use core::borrow::BorrowMut;
-unsafe { self.payload.Name.borrow_mut() }
+        unsafe { self.payload.Name.borrow_mut() }
     }
 
     pub fn is_Name(&self) -> bool {
@@ -718,13 +1018,13 @@ unsafe { self.payload.Name.borrow_mut() }
     pub fn borrow_OnEvent(&self) -> &InternalAttr_OnEvent {
         debug_assert_eq!(self.discriminant, discriminant_InternalAttr::OnEvent);
         use core::borrow::Borrow;
-unsafe { self.payload.OnEvent.borrow() }
+        unsafe { self.payload.OnEvent.borrow() }
     }
 
     pub fn borrow_mut_OnEvent(&mut self) -> &mut InternalAttr_OnEvent {
         debug_assert_eq!(self.discriminant, discriminant_InternalAttr::OnEvent);
         use core::borrow::BorrowMut;
-unsafe { self.payload.OnEvent.borrow_mut() }
+        unsafe { self.payload.OnEvent.borrow_mut() }
     }
 
     pub fn is_OnEvent(&self) -> bool {
@@ -739,13 +1039,13 @@ unsafe { self.payload.OnEvent.borrow_mut() }
     pub fn borrow_Placeholder(&self) -> &roc_std::RocStr {
         debug_assert_eq!(self.discriminant, discriminant_InternalAttr::Placeholder);
         use core::borrow::Borrow;
-unsafe { self.payload.Placeholder.borrow() }
+        unsafe { self.payload.Placeholder.borrow() }
     }
 
     pub fn borrow_mut_Placeholder(&mut self) -> &mut roc_std::RocStr {
         debug_assert_eq!(self.discriminant, discriminant_InternalAttr::Placeholder);
         use core::borrow::BorrowMut;
-unsafe { self.payload.Placeholder.borrow_mut() }
+        unsafe { self.payload.Placeholder.borrow_mut() }
     }
 
     pub fn is_Placeholder(&self) -> bool {
@@ -817,13 +1117,13 @@ unsafe { self.payload.Placeholder.borrow_mut() }
     pub fn borrow_Src(&self) -> &roc_std::RocStr {
         debug_assert_eq!(self.discriminant, discriminant_InternalAttr::Src);
         use core::borrow::Borrow;
-unsafe { self.payload.Src.borrow() }
+        unsafe { self.payload.Src.borrow() }
     }
 
     pub fn borrow_mut_Src(&mut self) -> &mut roc_std::RocStr {
         debug_assert_eq!(self.discriminant, discriminant_InternalAttr::Src);
         use core::borrow::BorrowMut;
-unsafe { self.payload.Src.borrow_mut() }
+        unsafe { self.payload.Src.borrow_mut() }
     }
 
     pub fn is_Src(&self) -> bool {
@@ -838,13 +1138,13 @@ unsafe { self.payload.Src.borrow_mut() }
     pub fn borrow_Style(&self) -> &roc_std::RocStr {
         debug_assert_eq!(self.discriminant, discriminant_InternalAttr::Style);
         use core::borrow::Borrow;
-unsafe { self.payload.Style.borrow() }
+        unsafe { self.payload.Style.borrow() }
     }
 
     pub fn borrow_mut_Style(&mut self) -> &mut roc_std::RocStr {
         debug_assert_eq!(self.discriminant, discriminant_InternalAttr::Style);
         use core::borrow::BorrowMut;
-unsafe { self.payload.Style.borrow_mut() }
+        unsafe { self.payload.Style.borrow_mut() }
     }
 
     pub fn is_Style(&self) -> bool {
@@ -878,13 +1178,13 @@ unsafe { self.payload.Style.borrow_mut() }
     pub fn borrow_Title(&self) -> &roc_std::RocStr {
         debug_assert_eq!(self.discriminant, discriminant_InternalAttr::Title);
         use core::borrow::Borrow;
-unsafe { self.payload.Title.borrow() }
+        unsafe { self.payload.Title.borrow() }
     }
 
     pub fn borrow_mut_Title(&mut self) -> &mut roc_std::RocStr {
         debug_assert_eq!(self.discriminant, discriminant_InternalAttr::Title);
         use core::borrow::BorrowMut;
-unsafe { self.payload.Title.borrow_mut() }
+        unsafe { self.payload.Title.borrow_mut() }
     }
 
     pub fn is_Title(&self) -> bool {
@@ -899,13 +1199,13 @@ unsafe { self.payload.Title.borrow_mut() }
     pub fn borrow_Type(&self) -> &roc_std::RocStr {
         debug_assert_eq!(self.discriminant, discriminant_InternalAttr::Type);
         use core::borrow::Borrow;
-unsafe { self.payload.Type.borrow() }
+        unsafe { self.payload.Type.borrow() }
     }
 
     pub fn borrow_mut_Type(&mut self) -> &mut roc_std::RocStr {
         debug_assert_eq!(self.discriminant, discriminant_InternalAttr::Type);
         use core::borrow::BorrowMut;
-unsafe { self.payload.Type.borrow_mut() }
+        unsafe { self.payload.Type.borrow_mut() }
     }
 
     pub fn is_Type(&self) -> bool {
@@ -920,13 +1220,13 @@ unsafe { self.payload.Type.borrow_mut() }
     pub fn borrow_Value(&self) -> &roc_std::RocStr {
         debug_assert_eq!(self.discriminant, discriminant_InternalAttr::Value);
         use core::borrow::Borrow;
-unsafe { self.payload.Value.borrow() }
+        unsafe { self.payload.Value.borrow() }
     }
 
     pub fn borrow_mut_Value(&mut self) -> &mut roc_std::RocStr {
         debug_assert_eq!(self.discriminant, discriminant_InternalAttr::Value);
         use core::borrow::BorrowMut;
-unsafe { self.payload.Value.borrow_mut() }
+        unsafe { self.payload.Value.borrow_mut() }
     }
 
     pub fn is_Value(&self) -> bool {
@@ -934,16 +1234,13 @@ unsafe { self.payload.Value.borrow_mut() }
     }
 }
 
-
-
 impl InternalAttr {
-
     pub fn Alt(payload: roc_std::RocStr) -> Self {
         Self {
             discriminant: discriminant_InternalAttr::Alt,
             payload: union_InternalAttr {
                 Alt: core::mem::ManuallyDrop::new(payload),
-            }
+            },
         }
     }
 
@@ -952,7 +1249,7 @@ impl InternalAttr {
             discriminant: discriminant_InternalAttr::Attribute,
             payload: union_InternalAttr {
                 Attribute: core::mem::ManuallyDrop::new(payload),
-            }
+            },
         }
     }
 
@@ -961,16 +1258,14 @@ impl InternalAttr {
             discriminant: discriminant_InternalAttr::Autocomplete,
             payload: union_InternalAttr {
                 Autocomplete: core::mem::ManuallyDrop::new(payload),
-            }
+            },
         }
     }
 
     pub fn Checked(payload: bool) -> Self {
         Self {
             discriminant: discriminant_InternalAttr::Checked,
-            payload: union_InternalAttr {
-                Checked: payload,
-            }
+            payload: union_InternalAttr { Checked: payload },
         }
     }
 
@@ -979,7 +1274,7 @@ impl InternalAttr {
             discriminant: discriminant_InternalAttr::Class,
             payload: union_InternalAttr {
                 Class: core::mem::ManuallyDrop::new(payload),
-            }
+            },
         }
     }
 
@@ -988,25 +1283,21 @@ impl InternalAttr {
             discriminant: discriminant_InternalAttr::DataAttribute,
             payload: union_InternalAttr {
                 DataAttribute: core::mem::ManuallyDrop::new(payload),
-            }
+            },
         }
     }
 
     pub fn Disabled(payload: bool) -> Self {
         Self {
             discriminant: discriminant_InternalAttr::Disabled,
-            payload: union_InternalAttr {
-                Disabled: payload,
-            }
+            payload: union_InternalAttr { Disabled: payload },
         }
     }
 
     pub fn Hidden(payload: bool) -> Self {
         Self {
             discriminant: discriminant_InternalAttr::Hidden,
-            payload: union_InternalAttr {
-                Hidden: payload,
-            }
+            payload: union_InternalAttr { Hidden: payload },
         }
     }
 
@@ -1015,7 +1306,7 @@ impl InternalAttr {
             discriminant: discriminant_InternalAttr::Href,
             payload: union_InternalAttr {
                 Href: core::mem::ManuallyDrop::new(payload),
-            }
+            },
         }
     }
 
@@ -1024,16 +1315,14 @@ impl InternalAttr {
             discriminant: discriminant_InternalAttr::Id,
             payload: union_InternalAttr {
                 Id: core::mem::ManuallyDrop::new(payload),
-            }
+            },
         }
     }
 
     pub fn Multiple(payload: bool) -> Self {
         Self {
             discriminant: discriminant_InternalAttr::Multiple,
-            payload: union_InternalAttr {
-                Multiple: payload,
-            }
+            payload: union_InternalAttr { Multiple: payload },
         }
     }
 
@@ -1042,7 +1331,7 @@ impl InternalAttr {
             discriminant: discriminant_InternalAttr::Name,
             payload: union_InternalAttr {
                 Name: core::mem::ManuallyDrop::new(payload),
-            }
+            },
         }
     }
 
@@ -1051,7 +1340,7 @@ impl InternalAttr {
             discriminant: discriminant_InternalAttr::OnEvent,
             payload: union_InternalAttr {
                 OnEvent: core::mem::ManuallyDrop::new(payload),
-            }
+            },
         }
     }
 
@@ -1060,34 +1349,28 @@ impl InternalAttr {
             discriminant: discriminant_InternalAttr::Placeholder,
             payload: union_InternalAttr {
                 Placeholder: core::mem::ManuallyDrop::new(payload),
-            }
+            },
         }
     }
 
     pub fn Readonly(payload: bool) -> Self {
         Self {
             discriminant: discriminant_InternalAttr::Readonly,
-            payload: union_InternalAttr {
-                Readonly: payload,
-            }
+            payload: union_InternalAttr { Readonly: payload },
         }
     }
 
     pub fn Required(payload: bool) -> Self {
         Self {
             discriminant: discriminant_InternalAttr::Required,
-            payload: union_InternalAttr {
-                Required: payload,
-            }
+            payload: union_InternalAttr { Required: payload },
         }
     }
 
     pub fn Selected(payload: bool) -> Self {
         Self {
             discriminant: discriminant_InternalAttr::Selected,
-            payload: union_InternalAttr {
-                Selected: payload,
-            }
+            payload: union_InternalAttr { Selected: payload },
         }
     }
 
@@ -1096,7 +1379,7 @@ impl InternalAttr {
             discriminant: discriminant_InternalAttr::Src,
             payload: union_InternalAttr {
                 Src: core::mem::ManuallyDrop::new(payload),
-            }
+            },
         }
     }
 
@@ -1105,16 +1388,14 @@ impl InternalAttr {
             discriminant: discriminant_InternalAttr::Style,
             payload: union_InternalAttr {
                 Style: core::mem::ManuallyDrop::new(payload),
-            }
+            },
         }
     }
 
     pub fn Tabindex(payload: i32) -> Self {
         Self {
             discriminant: discriminant_InternalAttr::Tabindex,
-            payload: union_InternalAttr {
-                Tabindex: payload,
-            }
+            payload: union_InternalAttr { Tabindex: payload },
         }
     }
 
@@ -1123,7 +1404,7 @@ impl InternalAttr {
             discriminant: discriminant_InternalAttr::Title,
             payload: union_InternalAttr {
                 Title: core::mem::ManuallyDrop::new(payload),
-            }
+            },
         }
     }
 
@@ -1132,7 +1413,7 @@ impl InternalAttr {
             discriminant: discriminant_InternalAttr::Type,
             payload: union_InternalAttr {
                 Type: core::mem::ManuallyDrop::new(payload),
-            }
+            },
         }
     }
 
@@ -1141,7 +1422,7 @@ impl InternalAttr {
             discriminant: discriminant_InternalAttr::Value,
             payload: union_InternalAttr {
                 Value: core::mem::ManuallyDrop::new(payload),
-            }
+            },
         }
     }
 }
@@ -1150,29 +1431,59 @@ impl Drop for InternalAttr {
     fn drop(&mut self) {
         // Drop the payloads
         match self.discriminant() {
-            discriminant_InternalAttr::Alt => unsafe { core::mem::ManuallyDrop::drop(&mut self.payload.Alt) },
-            discriminant_InternalAttr::Attribute => unsafe { core::mem::ManuallyDrop::drop(&mut self.payload.Attribute) },
-            discriminant_InternalAttr::Autocomplete => unsafe { core::mem::ManuallyDrop::drop(&mut self.payload.Autocomplete) },
+            discriminant_InternalAttr::Alt => unsafe {
+                core::mem::ManuallyDrop::drop(&mut self.payload.Alt)
+            },
+            discriminant_InternalAttr::Attribute => unsafe {
+                core::mem::ManuallyDrop::drop(&mut self.payload.Attribute)
+            },
+            discriminant_InternalAttr::Autocomplete => unsafe {
+                core::mem::ManuallyDrop::drop(&mut self.payload.Autocomplete)
+            },
             discriminant_InternalAttr::Checked => {}
-            discriminant_InternalAttr::Class => unsafe { core::mem::ManuallyDrop::drop(&mut self.payload.Class) },
-            discriminant_InternalAttr::DataAttribute => unsafe { core::mem::ManuallyDrop::drop(&mut self.payload.DataAttribute) },
+            discriminant_InternalAttr::Class => unsafe {
+                core::mem::ManuallyDrop::drop(&mut self.payload.Class)
+            },
+            discriminant_InternalAttr::DataAttribute => unsafe {
+                core::mem::ManuallyDrop::drop(&mut self.payload.DataAttribute)
+            },
             discriminant_InternalAttr::Disabled => {}
             discriminant_InternalAttr::Hidden => {}
-            discriminant_InternalAttr::Href => unsafe { core::mem::ManuallyDrop::drop(&mut self.payload.Href) },
-            discriminant_InternalAttr::Id => unsafe { core::mem::ManuallyDrop::drop(&mut self.payload.Id) },
+            discriminant_InternalAttr::Href => unsafe {
+                core::mem::ManuallyDrop::drop(&mut self.payload.Href)
+            },
+            discriminant_InternalAttr::Id => unsafe {
+                core::mem::ManuallyDrop::drop(&mut self.payload.Id)
+            },
             discriminant_InternalAttr::Multiple => {}
-            discriminant_InternalAttr::Name => unsafe { core::mem::ManuallyDrop::drop(&mut self.payload.Name) },
-            discriminant_InternalAttr::OnEvent => unsafe { core::mem::ManuallyDrop::drop(&mut self.payload.OnEvent) },
-            discriminant_InternalAttr::Placeholder => unsafe { core::mem::ManuallyDrop::drop(&mut self.payload.Placeholder) },
+            discriminant_InternalAttr::Name => unsafe {
+                core::mem::ManuallyDrop::drop(&mut self.payload.Name)
+            },
+            discriminant_InternalAttr::OnEvent => unsafe {
+                core::mem::ManuallyDrop::drop(&mut self.payload.OnEvent)
+            },
+            discriminant_InternalAttr::Placeholder => unsafe {
+                core::mem::ManuallyDrop::drop(&mut self.payload.Placeholder)
+            },
             discriminant_InternalAttr::Readonly => {}
             discriminant_InternalAttr::Required => {}
             discriminant_InternalAttr::Selected => {}
-            discriminant_InternalAttr::Src => unsafe { core::mem::ManuallyDrop::drop(&mut self.payload.Src) },
-            discriminant_InternalAttr::Style => unsafe { core::mem::ManuallyDrop::drop(&mut self.payload.Style) },
+            discriminant_InternalAttr::Src => unsafe {
+                core::mem::ManuallyDrop::drop(&mut self.payload.Src)
+            },
+            discriminant_InternalAttr::Style => unsafe {
+                core::mem::ManuallyDrop::drop(&mut self.payload.Style)
+            },
             discriminant_InternalAttr::Tabindex => {}
-            discriminant_InternalAttr::Title => unsafe { core::mem::ManuallyDrop::drop(&mut self.payload.Title) },
-            discriminant_InternalAttr::Type => unsafe { core::mem::ManuallyDrop::drop(&mut self.payload.Type) },
-            discriminant_InternalAttr::Value => unsafe { core::mem::ManuallyDrop::drop(&mut self.payload.Value) },
+            discriminant_InternalAttr::Title => unsafe {
+                core::mem::ManuallyDrop::drop(&mut self.payload.Title)
+            },
+            discriminant_InternalAttr::Type => unsafe {
+                core::mem::ManuallyDrop::drop(&mut self.payload.Type)
+            },
+            discriminant_InternalAttr::Value => unsafe {
+                core::mem::ManuallyDrop::drop(&mut self.payload.Value)
+            },
         }
     }
 }
@@ -1189,53 +1500,49 @@ impl roc_std::RocRefcounted for InternalAttr {
     }
 }
 
-#[derive(Clone, Debug, )]
+#[derive(Clone, Debug)]
 #[repr(C)]
-pub struct R1 {
+pub struct R2 {
     pub attrs: roc_std::RocList<InternalAttr>,
     pub children: roc_std::RocList<InternalHtml>,
     pub tag: roc_std::RocStr,
 }
 
-impl roc_std::RocRefcounted for R1 {
+impl roc_std::RocRefcounted for R2 {
     fn inc(&mut self) {
-         self.attrs.inc();
-     self.children.inc();
-     self.tag.inc();
-
+        self.attrs.inc();
+        self.children.inc();
+        self.tag.inc();
     }
     fn dec(&mut self) {
-         self.attrs.dec();
-     self.children.dec();
-     self.tag.dec();
-
+        self.attrs.dec();
+        self.children.dec();
+        self.tag.dec();
     }
     fn is_refcounted() -> bool {
         true
     }
 }
 
-#[derive(Clone, Debug, )]
+#[derive(Clone, Debug)]
 #[repr(transparent)]
 pub struct InternalHtml_Element {
-    pub f0: R1,
+    pub f0: R2,
 }
 
 impl roc_std::RocRefcounted for InternalHtml_Element {
     fn inc(&mut self) {
-         self.f0.inc();
-
+        self.f0.inc();
     }
     fn dec(&mut self) {
-         self.f0.dec();
-
+        self.f0.dec();
     }
     fn is_refcounted() -> bool {
         true
     }
 }
 
-#[derive(Clone, Default, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, )]
+#[derive(Clone, Default, Debug, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(transparent)]
 pub struct InternalHtml_Text {
     pub f0: roc_std::RocStr,
@@ -1243,19 +1550,17 @@ pub struct InternalHtml_Text {
 
 impl roc_std::RocRefcounted for InternalHtml_Text {
     fn inc(&mut self) {
-         self.f0.inc();
-
+        self.f0.inc();
     }
     fn dec(&mut self) {
-         self.f0.dec();
-
+        self.f0.dec();
     }
     fn is_refcounted() -> bool {
         true
     }
 }
 
-#[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash, )]
+#[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(u8)]
 pub enum discriminant_InternalHtml {
     Element = 0,
@@ -1284,12 +1589,12 @@ impl InternalHtml {
         let discriminants = {
             use discriminant_InternalHtml::*;
 
-            [ Element, Text ]
+            [Element, Text]
         };
 
         if self.0.is_null() {
             unreachable!("this pointer cannot be NULL")
-        } else  {
+        } else {
             match std::mem::size_of::<usize>() {
                 4 => discriminants[self.0 as usize & 0b011],
                 8 => discriminants[self.0 as usize & 0b111],
@@ -1316,23 +1621,25 @@ impl InternalHtml {
         core::mem::ManuallyDrop::new(unsafe { std::ptr::read(ptr) })
     }
 
-        pub fn is_Element(&self) -> bool {
+    pub fn is_Element(&self) -> bool {
         matches!(self.discriminant(), discriminant_InternalHtml::Element)
     }
 
-    pub fn Element(f0: R1) -> Self {
+    pub fn Element(f0: R2) -> Self {
         let tag_id = discriminant_InternalHtml::Element;
 
-        let payload = InternalHtml_Element { f0 } ;
+        let payload = InternalHtml_Element { f0 };
 
-        let union_payload = union_InternalHtml { Element: core::mem::ManuallyDrop::new(payload) };
+        let union_payload = union_InternalHtml {
+            Element: core::mem::ManuallyDrop::new(payload),
+        };
 
         let ptr = unsafe { roc_std::RocBox::leak(roc_std::RocBox::new(union_payload)) };
 
         Self((ptr as usize | tag_id as usize) as *mut _)
     }
 
-    pub fn get_Element_f0(&self) -> &R1 {
+    pub fn get_Element_f0(&self) -> &R2 {
         debug_assert!(self.is_Element());
 
         // extern "C" {
@@ -1343,7 +1650,6 @@ impl InternalHtml {
         let offset = 0;
         unsafe { &*self.unmasked_pointer().add(offset).cast() }
     }
-
 
     pub fn get_Element(mut self) -> InternalHtml_Element {
         debug_assert!(self.is_Element());
@@ -1358,9 +1664,11 @@ impl InternalHtml {
     pub fn Text(f0: roc_std::RocStr) -> Self {
         let tag_id = discriminant_InternalHtml::Text;
 
-        let payload = InternalHtml_Text { f0 } ;
+        let payload = InternalHtml_Text { f0 };
 
-        let union_payload = union_InternalHtml { Text: core::mem::ManuallyDrop::new(payload) };
+        let union_payload = union_InternalHtml {
+            Text: core::mem::ManuallyDrop::new(payload),
+        };
 
         let ptr = unsafe { roc_std::RocBox::leak(roc_std::RocBox::new(union_payload)) };
 
@@ -1379,7 +1687,6 @@ impl InternalHtml {
         unsafe { &*self.unmasked_pointer().add(offset).cast() }
     }
 
-
     pub fn get_Text(mut self) -> InternalHtml_Text {
         debug_assert!(self.is_Text());
 
@@ -1394,7 +1701,7 @@ impl Clone for InternalHtml {
         let discriminant = self.discriminant();
 
         match discriminant {
-                    Element => {
+            Element => {
                 let tag_id = discriminant_InternalHtml::Element;
 
                 let payload_union = unsafe { self.ptr_read_union() };
@@ -1405,7 +1712,7 @@ impl Clone for InternalHtml {
                 let ptr = unsafe { roc_std::RocBox::leak(roc_std::RocBox::new(payload)) };
 
                 Self((ptr as usize | tag_id as usize) as *mut _)
-            },
+            }
             Text => {
                 let tag_id = discriminant_InternalHtml::Text;
 
@@ -1417,44 +1724,41 @@ impl Clone for InternalHtml {
                 let ptr = unsafe { roc_std::RocBox::leak(roc_std::RocBox::new(payload)) };
 
                 Self((ptr as usize | tag_id as usize) as *mut _)
-            },
+            }
         }
     }
 }
-
-
-
-
-
-
-
 
 impl core::fmt::Debug for InternalHtml {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         use discriminant_InternalHtml::*;
 
         match self.discriminant() {
-                        Element => {
+            Element => {
                 let payload_union = unsafe { self.ptr_read_union() };
 
                 unsafe {
-                    f.debug_tuple("InternalHtml::Element").field(&payload_union.Element.f0).finish()
+                    f.debug_tuple("InternalHtml::Element")
+                        .field(&payload_union.Element.f0)
+                        .finish()
                 }
-            },
+            }
             Text => {
                 let payload_union = unsafe { self.ptr_read_union() };
 
                 unsafe {
-                    f.debug_tuple("InternalHtml::Text").field(&payload_union.Text.f0).finish()
+                    f.debug_tuple("InternalHtml::Text")
+                        .field(&payload_union.Text.f0)
+                        .finish()
                 }
-            },
+            }
         }
     }
 }
 
-
 #[repr(C)]
-union union_InternalHtml {    Element: core::mem::ManuallyDrop<InternalHtml_Element>,
+union union_InternalHtml {
+    Element: core::mem::ManuallyDrop<InternalHtml_Element>,
     Text: core::mem::ManuallyDrop<InternalHtml_Text>,
 }
 
@@ -1470,7 +1774,6 @@ impl roc_std::RocRefcounted for InternalHtml {
     }
 }
 
-
 impl roc_std::RocRefcounted for union_InternalHtml {
     fn inc(&mut self) {
         unimplemented!();
@@ -1483,11 +1786,9 @@ impl roc_std::RocRefcounted for union_InternalHtml {
     }
 }
 
-
-
-pub fn frontend_init_for_host(arg0: u32) -> u32 {
+pub fn frontend_init_for_host(arg0: u32) -> RocBox<()> {
     extern "C" {
-        fn roc__frontend_init_for_host_1_exposed_generic(_: *mut u32, _: u32);
+        fn roc__frontend_init_for_host_1_exposed_generic(_: *mut RocBox<()>, _: u32);
     }
 
     let mut ret = core::mem::MaybeUninit::uninit();
@@ -1499,15 +1800,33 @@ pub fn frontend_init_for_host(arg0: u32) -> u32 {
     }
 }
 
-pub fn frontend_view_for_host(arg0: u32) -> InternalHtml {
+pub fn frontend_view_for_host(model: RocBox<()>) -> InternalHtml {
     extern "C" {
-        fn roc__frontend_view_for_host_1_exposed_generic(_: *mut InternalHtml, _: u32);
+        fn roc__frontend_view_for_host_1_exposed_generic(_: *mut InternalHtml, _: RocBox<()>);
     }
 
     let mut ret = core::mem::MaybeUninit::uninit();
 
     unsafe {
-        roc__frontend_view_for_host_1_exposed_generic(ret.as_mut_ptr(), arg0);
+        roc__frontend_view_for_host_1_exposed_generic(ret.as_mut_ptr(), model);
+
+        ret.assume_init()
+    }
+}
+
+pub fn frontend_update_for_host(model: RocBox<()>, boxed_msg: RocBox<()>) -> R1 {
+    extern "C" {
+        fn roc__frontend_update_for_host_1_exposed_generic(
+            ret: *mut R1,
+            model: RocBox<()>,
+            msg: RocBox<()>,
+        );
+    }
+
+    let mut ret = core::mem::MaybeUninit::uninit();
+
+    unsafe {
+        roc__frontend_update_for_host_1_exposed_generic(ret.as_mut_ptr(), model, boxed_msg);
 
         ret.assume_init()
     }

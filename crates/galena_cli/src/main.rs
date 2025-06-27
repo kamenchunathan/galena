@@ -3,7 +3,7 @@ use std::{
     fs::{self, OpenOptions},
     io::Write,
     path::Path,
-    process::{self, Child, Command, ExitStatus},
+    process::{self, Child, Command},
     sync::mpsc::channel,
     time::{Duration, Instant},
 };
@@ -248,7 +248,7 @@ fn build_wasm(roc_bin: &str, build_dir: &Path, input: &Path) -> Result<()> {
         .filter(|s| !s.is_empty())
         .collect::<Vec<_>>();
     let status = link_wasm_cmd(
-        &exports,
+        dbg!(&exports),
         libfrontend_host_path.to_str().unwrap(),
         wasm_obj_path.to_str().unwrap(),
         link_output_path.to_str().unwrap(),

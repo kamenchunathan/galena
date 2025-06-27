@@ -1,6 +1,8 @@
 module [
     InternalAttr,
     InternalEvent,
+    map,
+
     # Attribute constructors
     id_,
     class_,
@@ -77,6 +79,41 @@ InternalAttr msg := [
     # Custom attribute fallback
     Attribute Str Str,
 ]
+
+map : InternalAttr oldMsg, (oldMsg -> newMsg) -> InternalAttr newMsg
+map = |attr, mapper|
+    when attr is
+        @InternalAttr (OnEvent eventType handler) ->
+            # Transform the event handler
+            newHandler = |event|
+                originalResult = handler event
+                mapper originalResult
+
+            @InternalAttr (OnEvent eventType newHandler)
+
+        # All other attributes don't contain messages, so they can be safely "cast"
+        @InternalAttr (Id value) -> @InternalAttr (Id value)
+        @InternalAttr (Class value) -> @InternalAttr (Class value)
+        @InternalAttr (Value value) -> @InternalAttr (Value value)
+        @InternalAttr (Placeholder value) -> @InternalAttr (Placeholder value)
+        @InternalAttr (Type value) -> @InternalAttr (Type value)
+        @InternalAttr (Name value) -> @InternalAttr (Name value)
+        @InternalAttr (Href value) -> @InternalAttr (Href value)
+        @InternalAttr (Src value) -> @InternalAttr (Src value)
+        @InternalAttr (Alt value) -> @InternalAttr (Alt value)
+        @InternalAttr (Title value) -> @InternalAttr (Title value)
+        @InternalAttr (Style value) -> @InternalAttr (Style value)
+        @InternalAttr (Autocomplete value) -> @InternalAttr (Autocomplete value)
+        @InternalAttr (Tabindex value) -> @InternalAttr (Tabindex value)
+        @InternalAttr (Disabled value) -> @InternalAttr (Disabled value)
+        @InternalAttr (Checked value) -> @InternalAttr (Checked value)
+        @InternalAttr (Selected value) -> @InternalAttr (Selected value)
+        @InternalAttr (Hidden value) -> @InternalAttr (Hidden value)
+        @InternalAttr (Readonly value) -> @InternalAttr (Readonly value)
+        @InternalAttr (Required value) -> @InternalAttr (Required value)
+        @InternalAttr (Multiple value) -> @InternalAttr (Multiple value)
+        @InternalAttr (DataAttribute key value) -> @InternalAttr (DataAttribute key value)
+        @InternalAttr (Attribute key value) -> @InternalAttr (Attribute key value)
 
 InternalEvent : {
     eventType : Str,

@@ -2,75 +2,114 @@ mod roc;
 
 use std::sync::{Arc, LazyLock, Mutex};
 
+use roc::Model;
+use roc_app::R1;
+use roc_std::RocBox;
 use wasm_bindgen::prelude::*;
-use wasm_bindgen::{prelude::*, JsCast};
+use wasm_bindgen::JsCast;
 use web_sys::js_sys::Array;
 use web_sys::{self, console};
-use web_sys::{Document, Element, Event, HtmlElement, HtmlInputElement};
+use web_sys::{Document, Element, Event, HtmlInputElement};
 use wee_alloc::WeeAlloc;
 
 use roc_app::{
     discriminant_InternalAttr, discriminant_InternalHtml, InternalAttr, InternalEvent,
-    InternalHtml, R1, R2,
+    InternalHtml, R2, R3,
 };
-
-use roc::call_roc_view;
-// use roc::call_roc_init;
 
 #[global_allocator]
 static ALLOC: WeeAlloc<'_> = WeeAlloc::INIT;
 
-// static MODEL: OnceLock<roc::Model> = OnceLock::new();
-// static CAPTURES: OnceLock<roc::Model> = OnceLock::new();
 static MODEL: LazyLock<Arc<Mutex<roc::Model>>> = LazyLock::new(|| {
-    let model = roc::call_roc_init();
-    Arc::new(Mutex::new(model))
+    let frontend_model = roc_app::frontend_init_for_host(0);
+    Arc::new(Mutex::new(unsafe { roc::Model::init(frontend_model) }))
 });
 
 #[wasm_bindgen]
 pub fn run() {
-    // if let Ok(model) = MODEL.lock() {
-    //     call_roc_view((*model).clone());
-    // }
+    console::log(
+        [JsValue::from("Initializing app...")]
+            .iter()
+            .collect::<Array>()
+            .as_ref(),
+    );
 
     let window = web_sys::window().unwrap();
     let document = window.document().expect("could not get document");
     let body = document.body().expect("Could not get document body");
     body.set_id("root");
 
-    let model = roc_app::frontend_init_for_host(0);
-    let app_html = roc_app::frontend_view_for_host(model);
+    // Initial render
+    render_app();
+}
 
-    match render_to_dom(app_html, "root") {
-        Ok(_) => {}
+fn render_app() {
+    let model = MODEL.lock().unwrap();
+
+    let app_html = roc_app::frontend_view_for_host(model.clone().inner);
+
+    match render_to_dom(app_html, "app") {
+        Ok(_) => {
+            console::log(
+                [JsValue::from("Render successful")]
+                    .iter()
+                    .collect::<Array>()
+                    .as_ref(),
+            );
+        }
         Err(e) => {
-            console::log([e].iter().collect::<Array>().as_ref());
+            console::log(
+                [JsValue::from("Render error:"), e]
+                    .iter()
+                    .collect::<Array>()
+                    .as_ref(),
+            );
         }
     }
-    // if let Some(model) = MODEL.get().cloned() {
-    //     let ViewResult {
-    //         model,
-    //         captures,
-    //         view,
-    //     } = call_roc_view(model);
-    //
-    //     MODEL.set(model);
-    //     CAPTURES.set(captures);
-    // }
+}
+
+fn update_model_and_rerender(message: RocBox<()>) {
+    // TODO: Update the model with the message
+    {
+        let R1 {
+            to_backend,
+            model: updated_model,
+        } = {
+            let model = MODEL.lock().expect("Unable to get model");
+            roc_app::frontend_update_for_host(model.clone().inner, message)
+        };
+        let updated_model = unsafe { Model::init(updated_model) };
+        let mut model = MODEL
+            .lock()
+            .expect("Could not acquire lock for model for update");
+        *model = updated_model;
+        drop(model);
+
+        console::log(
+            [
+                JsValue::from("Rerendering"),
+                format!("{to_backend:?}").into(),
+            ]
+            .iter()
+            .collect::<Array>()
+            .as_ref(),
+        );
+    }
+
+    // Trigger re-render
+    render_app();
 }
 
 pub struct DomBuilder {
     document: Document,
     event_handlers: Vec<Closure<dyn FnMut(Event)>>,
-    current_element: Element,
 }
 
 impl DomBuilder {
-    pub fn new(document: Document, root_element: Element) -> Self {
+    pub fn new(document: Document) -> Self {
         Self {
             document,
             event_handlers: Vec::new(),
-            current_element: root_element,
         }
     }
 
@@ -79,38 +118,26 @@ impl DomBuilder {
         html: &InternalHtml,
         parent_element: &Element,
     ) -> Result<(), JsValue> {
+        // Clear existing content
+        parent_element.set_inner_html("");
+
         match html.discriminant() {
             discriminant_InternalHtml::Text => {
                 let text_content = html.get_Text_f0();
-                parent_element.set_text_content(Some(text_content.as_str()));
+                let text_node = self.document.create_text_node(text_content.as_str());
+                parent_element.append_child(&text_node)?;
             }
             discriminant_InternalHtml::Element => {
                 let element_data = html.get_Element_f0();
-                let tag_name = &element_data.tag;
-                let attrs = &element_data.attrs;
-                let children = &element_data.children;
-
-                // Create the element
-                let element = self.document.create_element(&tag_name.as_str())?;
-
-                // Apply attributes and event listeners
-                for attr in attrs.iter() {
-                    self.apply_attribute(&element, attr)?;
-                }
-
+                let element = self.build_element(element_data)?;
                 parent_element.append_child(&element)?;
-
-                // Add children recursively
-                for child in children.iter() {
-                    self.build_dom(child, &element)?;
-                }
             }
         }
 
         Ok(())
     }
 
-    fn build_element(&mut self, element_data: &R1) -> Result<web_sys::Node, JsValue> {
+    fn build_element(&mut self, element_data: &R2) -> Result<web_sys::Node, JsValue> {
         let tag_name = &element_data.tag;
         let attrs = &element_data.attrs;
         let children = &element_data.children;
@@ -128,8 +155,8 @@ impl DomBuilder {
             match child.discriminant() {
                 discriminant_InternalHtml::Text => {
                     let text_content = child.get_Text_f0();
-                    self.current_element
-                        .set_text_content(Some(text_content.as_str()));
+                    let text_node = self.document.create_text_node(text_content.as_str());
+                    element.append_child(&text_node)?;
                 }
                 discriminant_InternalHtml::Element => {
                     let element_data = child.get_Element_f0();
@@ -241,7 +268,7 @@ impl DomBuilder {
                 element.set_attribute(&custom_attr.f0.as_str(), &custom_attr.f1.as_str())?;
             }
 
-            // Event handlers
+            // Event handlers - This is where the magic happens for rerenders!
             discriminant_InternalAttr::OnEvent => {
                 let event_data = attr.borrow_OnEvent().clone();
                 let event_type = event_data.f0.as_str();
@@ -249,7 +276,19 @@ impl DomBuilder {
                 let closure = Closure::wrap(Box::new(move |event: Event| {
                     let internal_event = convert_web_event_to_internal(&event);
                     let handler = event_data.f1.clone();
-                    handler.force_thunk(internal_event);
+
+                    // Call the Roc event handler and get the message
+                    let message = handler.force_thunk(internal_event);
+
+                    console::log(
+                        [JsValue::from("force_thunk called")]
+                            .iter()
+                            .collect::<Array>()
+                            .as_ref(),
+                    );
+
+                    // Update model and trigger rerender
+                    update_model_and_rerender(message);
                 }) as Box<dyn FnMut(Event)>);
 
                 element.add_event_listener_with_callback(
@@ -321,7 +360,7 @@ fn convert_web_event_to_internal(event: &Event) -> InternalEvent {
     }
 }
 
-fn get_target_info(target: Option<&web_sys::EventTarget>) -> R2 {
+fn get_target_info(target: Option<&web_sys::EventTarget>) -> R3 {
     if let Some(target) = target {
         if let Some(element) = target.dyn_ref::<Element>() {
             let id = element.get_attribute("id").unwrap_or_default();
@@ -333,17 +372,17 @@ fn get_target_info(target: Option<&web_sys::EventTarget>) -> R2 {
                 (String::new(), false)
             };
 
-            R2 {
+            R3 {
                 id: roc_std::RocStr::from(id.as_str()),
                 tagName: roc_std::RocStr::from(tag_name.as_str()),
                 value: roc_std::RocStr::from(value.as_str()),
                 checked,
             }
         } else {
-            R2::default()
+            R3::default()
         }
     } else {
-        R2::default()
+        R3::default()
     }
 }
 
@@ -354,13 +393,19 @@ pub fn render_to_dom(html: InternalHtml, container_id: &str) -> Result<(), JsVal
         .get_element_by_id(container_id)
         .ok_or("Container element not found")?;
 
-    let mut builder = DomBuilder::new(document, container.clone());
-
-    container.set_inner_html("");
+    let mut builder = DomBuilder::new(document);
     builder.build_dom(&html, &container)?;
-    console::log([JsValue::from("Bingo")].iter().collect::<Array>().as_ref());
 
-    std::mem::forget(builder);
+    // Keep the builder alive to maintain event handlers
+    // We need to store this somewhere so event handlers don't get dropped
+    BUILDER_STORAGE.with(|storage| {
+        *storage.borrow_mut() = Some(builder);
+    });
 
     Ok(())
+}
+
+// Thread-local storage for the DomBuilder to keep event handlers alive
+thread_local! {
+    static BUILDER_STORAGE: std::cell::RefCell<Option<DomBuilder>> = std::cell::RefCell::new(None);
 }

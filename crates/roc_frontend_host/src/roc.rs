@@ -7,7 +7,7 @@ use crate::ALLOC;
 
 #[derive(Clone, Debug)]
 pub struct Model {
-    inner: RocBox<()>,
+    pub inner: RocBox<()>,
 }
 
 impl Model {
@@ -82,55 +82,4 @@ pub unsafe extern "C" fn roc_dbg(loc: *mut RocStr, msg: *mut RocStr, src: *mut R
 pub unsafe extern "C" fn roc_memset(dst: *mut c_void, c: i32, n: usize) -> *mut c_void {
     std::ptr::write_bytes(dst as *mut u8, c as u8, n);
     dst
-}
-
-#[no_mangle]
-pub extern "C" fn roc_fx_print(client_id: &RocStr) {
-    // TODO: Use console log
-    println!("{}", client_id);
-}
-
-pub fn call_roc_init() -> Model {
-    extern "C" {
-        #[link_name = "roc__frontend_init_for_host_1_exposed"]
-        fn caller(_: i32) -> RocBox<()>;
-    }
-
-    unsafe { Model::init(caller(0)) }
-}
-pub struct ViewResult {
-    pub model: Model,
-    pub captures: Model,
-    pub view: RocStr,
-}
-
-pub fn call_roc_view(model: Model) -> ViewResult {
-    #[repr(C)]
-    struct ViewResultInner {
-        model: RocBox<()>,
-        captures: RocBox<()>,
-        view: RocStr,
-    }
-
-    extern "C" {
-        #[link_name = "roc__frontend_view_for_host_1_exposed"]
-        fn caller(model: RocBox<()>) -> ViewResultInner;
-    }
-
-    unsafe {
-        let ViewResultInner {
-            model,
-            captures,
-            view,
-        } = caller(model.inner);
-
-        let model = Model::init(model);
-        let captures = Model::init(captures);
-
-        ViewResult {
-            model,
-            captures,
-            view,
-        }
-    }
 }
