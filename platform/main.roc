@@ -19,7 +19,7 @@ platform "galena_platform"
 
 import Backend exposing [Backend]
 import Frontend exposing [Frontend]
-import InternalBackend
+import Internal.Backend
 import Internal.Frontend
 import Html
 
@@ -84,13 +84,13 @@ frontend_view_for_host! = |boxed|
 
 backend_init_for_host! : Box BackendModel
 backend_init_for_host! =
-    (InternalBackend.inner backendApp).init!
+    (Internal.Backend.inner backendApp).init!
     |> Box.box
 
 backend_update_for_host! : Box BackendModel, Str, Str, Str => { model : Box BackendModel, to_frontend : Result (Str, Str) [NoOp] }
 backend_update_for_host! = |boxed_model, client_id, session_id, msg_bytes|
     model = Box.unbox boxed_model
-    app = InternalBackend.inner backendApp
+    app = Internal.Backend.inner backendApp
 
     (updated_model, m_to_frontend_msg) =
         app.update_from_frontend
