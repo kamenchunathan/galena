@@ -14,7 +14,7 @@ use wee_alloc::WeeAlloc;
 
 use roc_app::{
     discriminant_InternalAttr, discriminant_InternalHtml, InternalAttr, InternalEvent,
-    InternalHtml, R2, R3,
+    InternalHtml, InternalHtmlElementFields, R3,
 };
 
 #[global_allocator]
@@ -128,7 +128,7 @@ impl DomBuilder {
                 parent_element.append_child(&text_node)?;
             }
             discriminant_InternalHtml::Element => {
-                let element_data = html.get_Element_f0();
+                let element_data = html.get_Element_fields();
                 let element = self.build_element(element_data)?;
                 parent_element.append_child(&element)?;
             }
@@ -137,7 +137,10 @@ impl DomBuilder {
         Ok(())
     }
 
-    fn build_element(&mut self, element_data: &R2) -> Result<web_sys::Node, JsValue> {
+    fn build_element(
+        &mut self,
+        element_data: &InternalHtmlElementFields,
+    ) -> Result<web_sys::Node, JsValue> {
         let tag_name = &element_data.tag;
         let attrs = &element_data.attrs;
         let children = &element_data.children;
@@ -146,8 +149,20 @@ impl DomBuilder {
         let element = self.document.create_element(&tag_name.as_str())?;
 
         // Apply attributes and event listeners
-        for attr in attrs.iter() {
-            self.apply_attribute(&element, attr)?;
+        // TODO: Loop through this manually
+        console::log(
+            [JsValue::from("Preloop")]
+                .iter()
+                .collect::<Array>()
+                .as_ref(),
+        );
+        for i in 0..attrs.len() {
+            unsafe {
+                let elements_ptr = attrs.as_ptr() as *mut u8;
+                let attr: *mut InternalAttr =
+                    elements_ptr.add(InternalAttr::size() as usize * i).cast();
+                self.apply_attribute(&element, &*attr)?;
+            }
         }
 
         // Add children recursively
@@ -159,7 +174,7 @@ impl DomBuilder {
                     element.append_child(&text_node)?;
                 }
                 discriminant_InternalHtml::Element => {
-                    let element_data = child.get_Element_f0();
+                    let element_data = child.get_Element_fields();
                     let child_node = self.build_element(element_data)?;
                     element.append_child(&child_node)?;
                 }
@@ -170,6 +185,17 @@ impl DomBuilder {
     }
 
     fn apply_attribute(&mut self, element: &Element, attr: &InternalAttr) -> Result<(), JsValue> {
+        console::log(
+            [
+                JsValue::from("In loop"),
+                JsValue::from(format!("{:?}", attr.discriminant())),
+                JsValue::from(format!("{:?}", InternalAttr::size())),
+            ]
+            .iter()
+            .collect::<Array>()
+            .as_ref(),
+        );
+
         match attr.discriminant() {
             discriminant_InternalAttr::Id => {
                 element.set_attribute("id", &attr.borrow_Id().as_str())?;
@@ -270,15 +296,19 @@ impl DomBuilder {
 
             // Event handlers - This is where the magic happens for rerenders!
             discriminant_InternalAttr::OnEvent => {
-                let event_data = attr.borrow_OnEvent().clone();
+                let event_data = attr.borrow_OnEvent();
                 let event_type = event_data.f0.as_str();
 
-                let closure = Closure::wrap(Box::new(move |event: Event| {
-                    let internal_event = convert_web_event_to_internal(&event);
-                    let handler = event_data.f1.clone();
+                // Clone the data by hand
+                // let ptr = &self as *const _ as *const u8;
+                // let slice = std::ptr::slice_from_raw_parts(ptr, InternalAttr::size() as usize);
+                // let _ = unsafe { *slice.clone() };
 
-                    // Call the Roc event handler and get the message
-                    let message = handler.force_thunk(internal_event);
+                let closure = Closure::wrap(Box::new(move |event: Event| {
+                    // let internal_event = convert_web_event_to_internal(&event);
+                    //
+                    // // Call the Roc event handler and get the message
+                    // let message = event_data.f1.force_thunk(internal_event);
 
                     console::log(
                         [JsValue::from("force_thunk called")]
@@ -286,9 +316,9 @@ impl DomBuilder {
                             .collect::<Array>()
                             .as_ref(),
                     );
-
-                    // Update model and trigger rerender
-                    update_model_and_rerender(message);
+                    //
+                    // // Update model and trigger rerender
+                    // update_model_and_rerender(message);
                 }) as Box<dyn FnMut(Event)>);
 
                 element.add_event_listener_with_callback(
