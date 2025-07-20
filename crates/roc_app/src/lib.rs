@@ -17,7 +17,7 @@
 use std::marker::{PhantomData, PhantomPinned};
 use std::mem::ManuallyDrop;
 
-use roc_std::roc_refcounted_noop_impl;
+use roc_std::{roc_refcounted_noop_impl, RocStr};
 use roc_std::{RocBox, RocRefcounted};
 
 #[derive(Clone, Copy, Default, PartialEq, PartialOrd, Eq, Ord, Hash)]
@@ -384,18 +384,12 @@ impl roc_std::RocRefcounted for InternalEvent {
 }
 
 #[repr(C)]
-#[derive(Debug)]
-pub struct RocFunction_3569 {
-    data: (),
-    _marker: PhantomData<(*mut u8, PhantomPinned)>,
+#[derive(Debug, Clone)]
+pub struct RocFunction {
+    closure_data: Vec<u8>,
 }
 
-impl RocFunction_3569 {
-    // IMPORTANT: This originally moved self into the function but it was changed to take
-    // a mutable pointer as I do not know the effect of move semantics for this type
-    // whose size is unknown
-    // This likely means using the pointer after it's been passed to this function is
-    // undefined behaviour
+impl RocFunction {
     pub fn force_thunk(&mut self, arg0: InternalEvent) -> RocBox<()> {
         extern "C" {
             fn roc__frontend_view_for_host_0_caller(
@@ -410,7 +404,7 @@ impl RocFunction_3569 {
         unsafe {
             roc__frontend_view_for_host_0_caller(
                 &arg0,
-                self as *mut _ as *mut u8,
+                self.closure_data.as_mut_ptr(),
                 output.as_mut_ptr(),
             );
 
@@ -418,21 +412,65 @@ impl RocFunction_3569 {
         }
     }
 }
-roc_refcounted_noop_impl!(RocFunction_3569);
+roc_refcounted_noop_impl!(RocFunction);
 
 #[derive(Debug)]
 #[repr(C)]
 pub struct InternalAttr_OnEvent {
-    pub f0: roc_std::RocStr,
-    pub f1: RocFunction_3569,
+    data: (),
+    _marker: PhantomData<(*mut u8, PhantomPinned)>,
+}
+
+impl InternalAttr_OnEvent {
+    fn closure_data_size() -> usize {
+        extern "C" {
+            #[link_name = "roc__frontend_view_for_host_0_size"]
+            fn roc_closure_size() -> u64;
+        }
+        unsafe { roc_closure_size() as usize }
+    }
+
+    fn size() -> usize {
+        let roc_function_size = InternalAttr_OnEvent::closure_data_size();
+        let roc_function_align = InternalAttr::ALIGN;
+
+        let roc_str_offset =
+            (roc_function_size + roc_function_align - 1) & !(roc_function_align - 1);
+
+        let on_event_unaligned_size = size_of::<RocStr>() + roc_str_offset;
+
+        (on_event_unaligned_size + roc_function_align - 1) & !(roc_function_align - 1)
+    }
+
+    pub fn event_type(&self) -> ManuallyDrop<RocStr> {
+        let roc_function_size = InternalAttr_OnEvent::closure_data_size();
+        let roc_function_align = InternalAttr::ALIGN;
+        let roc_str_offset =
+            (roc_function_size + roc_function_align - 1) & !(roc_function_align - 1);
+
+        let roc_str_ptr = unsafe { (self as *const _ as *const u8).add(roc_str_offset) };
+
+        ManuallyDrop::new(unsafe { std::ptr::read(roc_str_ptr as *const RocStr) })
+    }
+
+    pub fn event_callback(&self) -> RocFunction {
+        let closure_data = unsafe {
+            std::ptr::slice_from_raw_parts(self as *const _ as *const u8, Self::closure_data_size())
+                .as_ref()
+        };
+
+        RocFunction {
+            closure_data: Vec::from(closure_data.unwrap()),
+        }
+    }
 }
 
 impl roc_std::RocRefcounted for InternalAttr_OnEvent {
     fn inc(&mut self) {
-        self.f0.inc();
+        unimplemented!();
     }
     fn dec(&mut self) {
-        self.f0.dec();
+        unimplemented!();
     }
     fn is_refcounted() -> bool {
         true
@@ -532,54 +570,17 @@ pub struct InternalAttr {
 }
 
 impl InternalAttr {
-    pub fn size() -> u64 {
-        extern "C" {
-            #[link_name = "roc__frontend_view_for_host_0_size"]
-            fn caller() -> u64;
-        }
+    // NOTE: Guaranteed by an enforced capture in the platform main.roc
+    const ALIGN: usize = 8;
+    pub fn size() -> usize {
+        let roc_function_align = InternalAttr::ALIGN;
+        let on_event_variant_size = InternalAttr_OnEvent::size();
 
-        let roc_function_size = unsafe { caller() };
+        // include tag at the end
+        let max_variant_size =
+            std::cmp::max(size_of::<InternalAttr_Attribute>(), on_event_variant_size) + 1;
 
-        // --- Step 1: Determine the size of the `OnEvent` variant ---
-
-        // Assume the function/closure object has the alignment of a pointer.
-        let roc_function_align = align_of::<usize>();
-
-        // Get the size and alignment of the first field in `InternalAttr_OnEvent`.
-        let roc_str_size = size_of::<RocStr>();
-        let roc_str_align = align_of::<RocStr>();
-
-        // The offset of the second field (`f1`) is the size of the first (`f0`),
-        // rounded up to a multiple of the second field's alignment.
-        let function_field_offset =
-            (roc_str_size + roc_function_align - 1) & !(roc_function_align - 1);
-
-        // The unaligned size of the struct is the offset of the last field plus its size.
-        let on_event_struct_unaligned_size = function_field_offset + roc_function_size;
-
-        // The struct's total alignment is the max of its fields' alignments.
-        let on_event_struct_align = max(roc_str_align, roc_function_align);
-
-        // The final size of the `OnEvent` variant's data is its unaligned size
-        // rounded up to a multiple of its own alignment.
-        let size_of_on_event_variant = (on_event_struct_unaligned_size + on_event_struct_align - 1)
-            & !(on_event_struct_align - 1);
-
-        // --- Step 2: Find the maximum size among ALL union variants ---
-        let mut max_variant_size = 0;
-        max_variant_size = max(max_variant_size, size_of::<RocStr>());
-        max_variant_size = max(max_variant_size, size_of::<InternalAttr_Attribute>());
-        max_variant_size = max(max_variant_size, size_of::<bool>());
-        max_variant_size = max(max_variant_size, size_of::<i32>());
-        max_variant_size = max(max_variant_size, size_of_on_event_variant); // The one we just calculated
-
-        // --- Step 3: Apply the union's overall alignment ---
-        // The union is `#[repr(C, align(4))]`. Its final size must be the
-        // smallest multiple of 4 that is >= max_variant_size.
-        let union_alignment = 4;
-        let final_size = (max_variant_size + union_alignment - 1) & !(union_alignment - 1);
-
-        final_size
+        (max_variant_size + roc_function_align - 1) & !(roc_function_align - 1)
     }
 
     /// Returns which variant this tag union holds. Note that this never includes a payload!

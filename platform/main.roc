@@ -75,11 +75,24 @@ frontend_handle_ws_event_for_host! = |boxed, msg_bytes|
             ),
     }
 
-frontend_view_for_host! : Box FrontendModel => Html.Html (Box FrontendMsg)
+frontend_view_for_host! : Box FrontendModel => Html.Html (Result (Box FrontendMsg) {})
 frontend_view_for_host! = |boxed|
     model = Box.unbox boxed
     app = Internal.Frontend.inner frontendApp
-    app.view model |> Html.map Box.box 
+        
+    # NOTE: This forces the alignment of the captured type to 8 so that calculations
+    # on the size of the attribute which are dependent on size and alignment of captures
+    # in the function returned by the onevent are easier as we dont have to account for
+    # multiple alignment values. The possible values of this alignment are either 4 or 8
+    # due to restrictions by other types, capturing a U64 ensures the strictest alignment
+    # and hence the overall alignment is 8 bytes. with a downside of space efficiency 
+    a : U64
+    a = 0
+    
+    Html.div [] [ 
+        app.view model |> Html.map (|msg| Ok (Box.box msg)),
+        Html.div [ Html.on_click (|_| Err (drop a)) , Html.attribute "hidden" "" ] []
+    ]
 
 
 backend_init_for_host! : Box BackendModel
@@ -109,3 +122,4 @@ backend_update_for_host! = |boxed_model, client_id, session_id, msg_bytes|
             ),
     }
 
+drop = |_| {}

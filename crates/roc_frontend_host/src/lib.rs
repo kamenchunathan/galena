@@ -27,7 +27,7 @@ static MODEL: LazyLock<Arc<Mutex<roc::Model>>> = LazyLock::new(|| {
 
 #[wasm_bindgen]
 pub fn run() {
-    console::log(
+    console::debug(
         [JsValue::from("Initializing app...")]
             .iter()
             .collect::<Array>()
@@ -48,7 +48,7 @@ fn render_app() {
 
     let app_html = roc_app::frontend_view_for_host(model.clone().inner);
 
-    match render_to_dom(app_html, "app") {
+    match render_to_dom(app_html, "root") {
         Ok(_) => {
             console::log(
                 [JsValue::from("Render successful")]
@@ -85,10 +85,10 @@ fn update_model_and_rerender(message: RocBox<()>) {
         *model = updated_model;
         drop(model);
 
-        console::log(
+        console::debug(
             [
                 JsValue::from("Rerendering"),
-                format!("{to_backend:?}").into(),
+                format!("To backend {to_backend:?}").into(),
             ]
             .iter()
             .collect::<Array>()
@@ -149,18 +149,12 @@ impl DomBuilder {
         let element = self.document.create_element(&tag_name.as_str())?;
 
         // Apply attributes and event listeners
-        // TODO: Loop through this manually
-        console::log(
-            [JsValue::from("Preloop")]
-                .iter()
-                .collect::<Array>()
-                .as_ref(),
-        );
         for i in 0..attrs.len() {
             unsafe {
                 let elements_ptr = attrs.as_ptr() as *mut u8;
                 let attr: *mut InternalAttr =
                     elements_ptr.add(InternalAttr::size() as usize * i).cast();
+
                 self.apply_attribute(&element, &*attr)?;
             }
         }
@@ -185,17 +179,6 @@ impl DomBuilder {
     }
 
     fn apply_attribute(&mut self, element: &Element, attr: &InternalAttr) -> Result<(), JsValue> {
-        console::log(
-            [
-                JsValue::from("In loop"),
-                JsValue::from(format!("{:?}", attr.discriminant())),
-                JsValue::from(format!("{:?}", InternalAttr::size())),
-            ]
-            .iter()
-            .collect::<Array>()
-            .as_ref(),
-        );
-
         match attr.discriminant() {
             discriminant_InternalAttr::Id => {
                 element.set_attribute("id", &attr.borrow_Id().as_str())?;
@@ -296,33 +279,19 @@ impl DomBuilder {
 
             // Event handlers - This is where the magic happens for rerenders!
             discriminant_InternalAttr::OnEvent => {
-                let event_data = attr.borrow_OnEvent();
-                let event_type = event_data.f0.as_str();
+                let event = attr.borrow_OnEvent();
+                let event_type = event.event_type();
+                let mut cb = event.event_callback();
 
-                // Clone the data by hand
-                // let ptr = &self as *const _ as *const u8;
-                // let slice = std::ptr::slice_from_raw_parts(ptr, InternalAttr::size() as usize);
-                // let _ = unsafe { *slice.clone() };
+                let closure = Closure::wrap(Box::new(move |e: Event| {
+                    let internal_event = convert_web_event_to_internal(&e);
+                    let message = cb.force_thunk(internal_event);
 
-                let closure = Closure::wrap(Box::new(move |event: Event| {
-                    // let internal_event = convert_web_event_to_internal(&event);
-                    //
-                    // // Call the Roc event handler and get the message
-                    // let message = event_data.f1.force_thunk(internal_event);
-
-                    console::log(
-                        [JsValue::from("force_thunk called")]
-                            .iter()
-                            .collect::<Array>()
-                            .as_ref(),
-                    );
-                    //
-                    // // Update model and trigger rerender
-                    // update_model_and_rerender(message);
+                    update_model_and_rerender(message);
                 }) as Box<dyn FnMut(Event)>);
 
                 element.add_event_listener_with_callback(
-                    event_type,
+                    event_type.as_str(),
                     closure.as_ref().unchecked_ref(),
                 )?;
 

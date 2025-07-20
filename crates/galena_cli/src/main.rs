@@ -449,13 +449,7 @@ fn build_backend_cmd(
     create_directory_if_not_exists(Path::new(build_dir))?;
 
     let mut cmd = process::Command::new(roc_bin_path);
-    cmd.args([
-        "build",
-        "--emit-llvm-ir",
-        source_file,
-        "--output",
-        output_binary,
-    ]);
+    cmd.args(["build", source_file, "--output", output_binary]);
 
     Ok(cmd)
 }
@@ -472,6 +466,7 @@ fn build_wasm_obj_cmd(
         "build",
         "--target",
         "wasm32",
+        "--emit-llvm-ir",
         "--no-link",
         "--output",
         output_path,

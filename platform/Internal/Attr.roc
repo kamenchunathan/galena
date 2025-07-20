@@ -4,6 +4,7 @@ module [
     map,
 
     # Attribute constructors
+    attribute_,
     id_,
     class_,
     value_,
@@ -262,3 +263,7 @@ on_load_ = |handler| @InternalAttr(OnEvent "load" handler)
 
 on_scroll_ : (InternalEvent -> msg) -> InternalAttr msg
 on_scroll_ = |handler| @InternalAttr(OnEvent "scroll" handler)
+
+attribute_ : Str, Str -> InternalAttr msg
+attribute_ = |attr_name, attr_value| @InternalAttr(Attribute(attr_name, attr_value))
+

@@ -66,8 +66,9 @@ module [
     multiple,
     autocomplete,
     tabindex,
-    style_attr,
+    style,
     data,
+    attribute,
     # Event handlers
     on_click,
     on_input,
@@ -175,6 +176,7 @@ import Internal.Attr exposing [
     on_mouseleave_,
     on_load_,
     on_scroll_,
+    attribute_,
 ]
 
 # Type aliases
@@ -267,7 +269,7 @@ multiple = multiple_
 # Other attributes
 autocomplete = autocomplete_
 tabindex = tabindex_
-style_attr = style_ # Renamed to avoid conflict with style element
+style = style_ 
 data = data_
 
 # Event handlers
@@ -288,3 +290,5 @@ on_mouseenter = on_mouseenter_
 on_mouseleave = on_mouseleave_
 on_load = on_load_
 on_scroll = on_scroll_
+
+attribute = attribute_
