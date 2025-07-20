@@ -59,33 +59,61 @@ view : FrontendModel -> Html.Html FrontendMsg
 view = |{local_clicks, total_clicks}|
     Html.div
         [
-            Html.style "display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; background-color: #f0f4f8; font-family: sans-serif; ",
+            Html.style (Str.join_with [
+                "display: flex;",
+                "flex-direction: column;",
+                "align-items: center;",
+                "justify-content: center;",
+                "min-height: 100vh;",
+                "background-color: #f0f4f8;",
+                "font-family: sans-serif;"
+            ] " "),
         ]
         [
             Html.h1
-                [ Html.style "color: #333; margin-bottom: 2rem;" ]
+                [ Html.style (Str.join_with ["color: #333;", "margin-bottom: 2rem;"] " ") ]
                 [ Html.text "Counter Example" ],
+
             Html.div
-                [ Html.style "background-color: #ffffff; padding: 2rem; border-radius: 8px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); text-align: center; " ]
+                [
+                    Html.style (Str.join_with [
+                        "background-color: #ffffff;",
+                        "padding: 2rem;",
+                        "border-radius: 8px;",
+                        "box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);",
+                        "text-align: center;"
+                    ] " "),
+                ]
                 [
                     Html.div [ Html.style "margin-bottom: 1.5rem;" ] [
-                        Html.span [ Html.style "font-weight: bold; color: #555;" ] [ Html.text "Your Clicks: " ],
-                        Html.span [ Html.style "font-size: 1.2em; color: #007bff;" ] [ Html.text (Num.to_str local_clicks) ],
+                        Html.span [ Html.style (Str.join_with ["font-weight: bold;", "color: #555;"] " ") ] [ Html.text "Your Clicks: " ],
+                        Html.span [ Html.style (Str.join_with ["font-size: 1.2em;", "color: #007bff;"] " ") ] [ Html.text (Num.to_str local_clicks) ],
                     ],
                     Html.div [ Html.style "margin-bottom: 1.5rem;" ] [
-                        Html.span [ Html.style "font-weight: bold; color: #555;" ] [ Html.text "Total Clicks: " ],
-                        Html.span [ Html.style "font-size: 1.2em; color: #28a745;" ] [ Html.text (Num.to_str total_clicks) ],
+                        Html.span [ Html.style (Str.join_with ["font-weight: bold;", "color: #555;"] " ") ] [ Html.text "Total Clicks: " ],
+                        Html.span [ Html.style (Str.join_with ["font-size: 1.2em;", "color: #28a745;"] " ") ] [ Html.text (Num.to_str total_clicks) ],
                     ],
                     Html.button
                         [
                             Html.id "incr",
-                            Html.style "background-color: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 5px; font-size: 1em; cursor: pointer; outline: none; transition: background-color 0.3s;",
+                            Html.style (Str.join_with [
+                                "background-color: #007bff;",
+                                "color: white;",
+                                "border: none;",
+                                "padding: 10px 20px;",
+                                "border-radius: 5px;",
+                                "font-size: 1em;",
+                                "cursor: pointer;",
+                                "outline: none;",
+                                "transition: background-color 0.3s;"
+                            ] " "),
                             Html.on_click (|_| Click),
                         ]
                         [ Html.text "Increment" ],
                 ],
+
             Html.footer
-                [ Html.style "margin-top: 2rem; color: #888; font-size: 0.9em;" ]
+                [ Html.style (Str.join_with ["margin-top: 2rem;", "color: #888;", "font-size: 0.9em;"] " ") ]
                 [ Html.text "A simple counter application built with Galena and Roc." ],
         ]
 
@@ -104,4 +132,3 @@ backendApp = Backend.backend {
 
 update_from_frontend : Str, Str, ToBackendMsg -> BackendendMsg
 update_from_frontend = |client_id, _, client_counter| UpdateCounter client_id client_counter
-
