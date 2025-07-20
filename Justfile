@@ -28,9 +28,10 @@ build:
 
     roc ./scripts/build.roc
 
-run:
-    target/release/cli --roc-bin $ROC_SRC_CODE_PATH/target/release/roc watch examples/counter.roc --paths platform
+run FILE:
+    target/release/cli watch {{ FILE }} --paths platform
     
 clean:
     cargo clean
     rm -f platform/{dynhost,libapp.so,linux-x64.{a,rh},metadata_linux-x64.rm}
+    rm -r .galena
