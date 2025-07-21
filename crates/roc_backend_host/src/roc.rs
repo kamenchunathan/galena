@@ -1,5 +1,5 @@
 use core::ffi::c_void;
-use std::sync::{Arc, RwLock};
+use std::mem::ManuallyDrop;
 
 use roc_std::{RocBox, RocResult, RocStr};
 
@@ -7,7 +7,7 @@ use crate::{MessageInfo, ASYNC_RUNTIME, CHANNEL_SENDER};
 
 #[derive(Clone, Debug)]
 pub struct Model {
-    inner: RocBox<()>,
+    pub(super) inner: RocBox<()>,
 }
 
 impl Model {
@@ -29,18 +29,6 @@ impl Model {
 unsafe impl Send for Model {}
 unsafe impl Sync for Model {}
 
-#[repr(C)]
-struct BackendUpdateResult {
-    model: RocBox<()>,
-    to_frontend: RocResult<ToFrontendMsg, ()>,
-}
-
-#[repr(C)]
-struct ToFrontendMsg {
-    client_id: RocStr,
-    msg: RocStr,
-}
-
 pub fn call_roc_backend_init() -> RocBox<()> {
     extern "C" {
         #[link_name = "roc__backend_init_for_host_1_exposed"]
@@ -53,35 +41,48 @@ pub fn call_roc_backend_init() -> RocBox<()> {
     unsafe { caller() }
 }
 
-pub fn call_roc_backend_update(
-    model: Arc<RwLock<Model>>,
-    client_id: &str,
-    session_id: &str,
-    msg: &str,
-) {
-    extern "C" {
-        #[link_name = "roc__backend_update_for_host_1_exposed"]
-        pub fn caller(
-            boxed_model: RocBox<()>,
-            client_id: RocStr,
-            session_id: RocStr,
-            msg_bytes: RocStr,
-        ) -> BackendUpdateResult;
+#[derive(Clone, Default, Debug, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[repr(C)]
+pub struct ToFrontend {
+    pub client_id: roc_std::RocStr,
+    pub message: roc_std::RocStr,
+}
 
-        // #[link_name = "roc__backend_init_for_host_1_exposed_size"]
-        // fn size() -> i64;
+#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[repr(C)]
+pub struct BackendUpdateReturn {
+    pub model: RocBox<()>,
+    pub to_frontend: RocResult<ToFrontend, ()>,
+}
+
+pub fn backend_update_for_host(
+    model: Model,
+    client_id: RocStr,
+    session_id: RocStr,
+    msg_bytes: RocStr,
+) -> BackendUpdateReturn {
+    extern "C" {
+        fn roc__backend_update_for_host_1_exposed_generic(
+            _: *mut BackendUpdateReturn,
+            _: RocBox<()>,
+            _: &mut ManuallyDrop<roc_std::RocStr>,
+            _: &mut ManuallyDrop<roc_std::RocStr>,
+            _: &mut ManuallyDrop<roc_std::RocStr>,
+        );
     }
 
-    let client_id = RocStr::from(client_id);
-    let session_id = RocStr::from(session_id);
-    let msg = RocStr::from(msg);
-    let updated_roc_model = {
-        let model = model.read().expect("Could not acquire lock").clone();
+    let mut ret = core::mem::MaybeUninit::uninit();
 
-        unsafe { caller(model.inner, client_id, session_id, msg) }
-    };
-    if let Ok(mut write_lock) = model.write() {
-        *write_lock = unsafe { Model::init(updated_roc_model.model) };
+    unsafe {
+        roc__backend_update_for_host_1_exposed_generic(
+            ret.as_mut_ptr(),
+            model.inner,
+            &mut ManuallyDrop::new(client_id),
+            &mut ManuallyDrop::new(session_id),
+            &mut ManuallyDrop::new(msg_bytes),
+        );
+
+        ret.assume_init()
     }
 }
 
@@ -144,7 +145,8 @@ pub unsafe extern "C" fn roc_panic(msg: *mut RocStr, tag_id: u32) {
         }
         _ => unreachable!(),
     }
-    std::process::exit(1);
+
+    panic!("Roc paniced");
 }
 
 #[no_mangle]

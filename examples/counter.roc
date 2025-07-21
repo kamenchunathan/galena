@@ -18,16 +18,19 @@ FrontendModel : {
 }
 
 BackendModel : {
-    counter : I32,
+    counter : U32,
 }
 
-ToFrontendMsg : I32
+ToFrontendMsg : U32
 
-ToBackendMsg : I32
+ToBackendMsg : U32
 
-FrontendMsg : [Click, NoOp]
+FrontendMsg : [
+    Click, 
+    TotalCountUpdate U32,
+]
 
-BackendendMsg : [UpdateCounter Str I32]
+BackendendMsg : [UpdateCounter Str U32]
 
 frontendApp : Frontend FrontendModel FrontendMsg ToFrontendMsg ToBackendMsg
 frontendApp = Frontend.frontend {
@@ -37,12 +40,11 @@ frontendApp = Frontend.frontend {
 
     view: view,
 
-    updateFromBackend: |_| NoOp,
+    updateFromBackend: TotalCountUpdate,
 }
 
 frontend_update! : FrontendMsg, FrontendModel => (FrontendModel, Result ToBackendMsg [NoOp])
 frontend_update! = |msg, model|
-    # print! (Inspect.to_str msg)
     when msg is
         Click ->
             (
@@ -50,10 +52,18 @@ frontend_update! = |msg, model|
                     local_clicks: model.local_clicks + 1,  
                     total_clicks: model.total_clicks 
                 }, 
+                Ok model.local_clicks
+            )
+
+        TotalCountUpdate backend_clicks -> 
+            (
+                { 
+                    local_clicks: model.local_clicks,  
+                    total_clicks: backend_clicks
+                }, 
                 Err NoOp
             )
 
-        NoOp -> (model, Err NoOp)
 
 view : FrontendModel -> Html.Html FrontendMsg
 view = |{local_clicks, total_clicks}|

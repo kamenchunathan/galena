@@ -17,7 +17,6 @@ panic = "abort"
 [dependencies]
 roc_std.workspace = true
 anyhow.workspace = true
-roc_app = { path = "../roc_app" }
 libc = "0.2"
 wee_alloc = "0.4.5"
 wasm-bindgen = "0.2.100"
@@ -34,4 +33,9 @@ web-sys = { version = "0.3", features = [
   "Node",
   "Text",
   "Window",
-]}
+  "WebSocket",
+  "MessageEvent",
+  "ErrorEvent",
+  "CloseEvent",
+  "Location",
+] }

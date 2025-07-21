@@ -9,9 +9,9 @@ platform "galena_platform"
     }
     imports []
     provides [
+        frontend_decode_to_frontend_msg,
         frontend_init_for_host!,
         frontend_update_for_host!,
-        frontend_handle_ws_event_for_host!,
         frontend_view_for_host!,
         backend_init_for_host!,
         backend_update_for_host!,
@@ -51,30 +51,12 @@ frontend_update_for_host! = |boxed_model, boxed_msg|
             ),
     }
 
-frontend_handle_ws_event_for_host! :
-    Box FrontendModel,
-    List U8
-    => {
-        model : Box FrontendModel,
-        to_backend : Result Str [NoOp],
-    }
-frontend_handle_ws_event_for_host! = |boxed, msg_bytes|
-    model = Box.unbox boxed
+frontend_decode_to_frontend_msg : List U8 -> Box ToFrontendMsg
+frontend_decode_to_frontend_msg = | msg_bytes|
     app = Internal.Frontend.inner frontendApp
-    (updated_model, m_to_backend_msg) =
-        app.decode_to_frontend_msg msg_bytes
-        |> app.updateFromBackend
-        |> app.update! model
-    {
-        model: Box.box updated_model,
-        to_backend: Result.map_ok
-            m_to_backend_msg
-            (|to_backend_msg|
-                app.encode_to_backend_msg to_backend_msg
-                |> Str.from_utf8_lossy
-            ),
-    }
-
+    app.decode_to_frontend_msg msg_bytes
+        |> Box.box
+            
 frontend_view_for_host! : Box FrontendModel => Html.Html (Result (Box FrontendMsg) {})
 frontend_view_for_host! = |boxed|
     model = Box.unbox boxed
@@ -100,7 +82,15 @@ backend_init_for_host! =
     (Internal.Backend.inner backendApp).init!
     |> Box.box
 
-backend_update_for_host! : Box BackendModel, Str, Str, Str => { model : Box BackendModel, to_frontend : Result (Str, Str) [NoOp] }
+#  NOTE: Currently only called when we receive a message
+# TODO: Expand the circumstances in which this would be called e.g. with subscriptions
+#  or rename this to be more descriptive of this specific scenario
+backend_update_for_host! : 
+    Box BackendModel, Str, Str, Str => 
+    { 
+        model: Box BackendModel, 
+        to_frontend: Result { client_id: Str,  message: Str} [NoOp]
+    }
 backend_update_for_host! = |boxed_model, client_id, session_id, msg_bytes|
     model = Box.unbox boxed_model
     app = Internal.Backend.inner backendApp
@@ -118,7 +108,7 @@ backend_update_for_host! = |boxed_model, client_id, session_id, msg_bytes|
             m_to_frontend_msg
             (|(cid, to_frontend_msg)|
                 msg = Str.from_utf8_lossy (app.encode_to_frontend_msg to_frontend_msg)
-                (cid, msg)
+                { client_id: cid, message: msg }
             ),
     }
 

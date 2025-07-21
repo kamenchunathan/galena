@@ -8,6 +8,9 @@ links = "app"
 [lib]
 name = "roc_host"
 
+[profile.release]
+opt-level = 0
+
 [dependencies]
 roc_std.workspace = true
 anyhow.workspace = true

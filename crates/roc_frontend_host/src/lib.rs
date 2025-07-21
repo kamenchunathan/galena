@@ -1,38 +1,44 @@
 mod roc;
+mod ws;
 
+use std::cell::RefCell;
 use std::sync::{Arc, LazyLock, Mutex};
 
 use roc::Model;
-use roc_app::R1;
+use roc::{frontend_decode_to_frontend_msg, UpdateResult};
 use roc_std::RocBox;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::js_sys::Array;
+use web_sys::WebSocket;
 use web_sys::{self, console};
 use web_sys::{Document, Element, Event, HtmlInputElement};
 use wee_alloc::WeeAlloc;
 
-use roc_app::{
+use roc::{
     discriminant_InternalAttr, discriminant_InternalHtml, InternalAttr, InternalEvent,
     InternalHtml, InternalHtmlElementFields, R3,
 };
+
+use crate::ws::ReconnectingWebSocket;
 
 #[global_allocator]
 static ALLOC: WeeAlloc<'_> = WeeAlloc::INIT;
 
 static MODEL: LazyLock<Arc<Mutex<roc::Model>>> = LazyLock::new(|| {
-    let frontend_model = roc_app::frontend_init_for_host(0);
+    let frontend_model = roc::frontend_init_for_host(0);
     Arc::new(Mutex::new(unsafe { roc::Model::init(frontend_model) }))
 });
 
+thread_local! {
+    // Thread-local storage for the DomBuilder to keep event handlers alive
+    static BUILDER_STORAGE: std::cell::RefCell<Option<DomBuilder>> = std::cell::RefCell::new(None);
+    static WS: std::cell::RefCell<ReconnectingWebSocket> = std::cell::RefCell::new( ReconnectingWebSocket::new(get_ws_url()) );
+}
+
 #[wasm_bindgen]
 pub fn run() {
-    console::debug(
-        [JsValue::from("Initializing app...")]
-            .iter()
-            .collect::<Array>()
-            .as_ref(),
-    );
+    console::debug_1(&"Initializing app...".into());
 
     let window = web_sys::window().unwrap();
     let document = window.document().expect("could not get document");
@@ -41,12 +47,36 @@ pub fn run() {
 
     // Initial render
     render_app();
+
+    // Setup WebSocket
+    WS.with(|ws: &RefCell<ReconnectingWebSocket>| {
+        let mut ws = ws.borrow_mut();
+        ws.connect().expect("Failed to connect to websocket");
+        ws.set_onmessage(|message_event| {
+            if let Some(data) = message_event.data().as_string() {
+                let msg = frontend_decode_to_frontend_msg(data.as_bytes().into());
+                update_model_and_rerender(msg);
+            }
+        });
+    });
+}
+
+fn get_ws_url() -> String {
+    let window = web_sys::window().unwrap();
+    let location = window.location();
+    let protocol = if location.protocol().unwrap() == "https:" {
+        "wss:"
+    } else {
+        "ws:"
+    };
+    let host = location.host().unwrap();
+    format!("{}//{}/ws", protocol, host)
 }
 
 fn render_app() {
     let model = MODEL.lock().unwrap();
 
-    let app_html = roc_app::frontend_view_for_host(model.clone().inner);
+    let app_html = roc::frontend_view_for_host(model.clone().inner);
 
     match render_to_dom(app_html, "root") {
         Ok(_) => {
@@ -71,12 +101,12 @@ fn render_app() {
 fn update_model_and_rerender(message: RocBox<()>) {
     // TODO: Update the model with the message
     {
-        let R1 {
+        let UpdateResult {
             to_backend,
             model: updated_model,
         } = {
             let model = MODEL.lock().expect("Unable to get model");
-            roc_app::frontend_update_for_host(model.clone().inner, message)
+            roc::frontend_update_for_host(model.clone().inner, message)
         };
         let updated_model = unsafe { Model::init(updated_model) };
         let mut model = MODEL
@@ -84,16 +114,22 @@ fn update_model_and_rerender(message: RocBox<()>) {
             .expect("Could not acquire lock for model for update");
         *model = updated_model;
         drop(model);
-
         console::debug(
             [
                 JsValue::from("Rerendering"),
-                format!("To backend {to_backend:?}").into(),
+                format!("To backend {:?}", &to_backend).into(),
             ]
             .iter()
             .collect::<Array>()
             .as_ref(),
         );
+
+        if let Ok(to_backend_msg) = to_backend.into() {
+            WS.with(|ws: &RefCell<ReconnectingWebSocket>| {
+                let ws = ws.borrow();
+                ws.send_message(to_backend_msg.as_str()).unwrap();
+            });
+        }
     }
 
     // Trigger re-render
@@ -402,9 +438,4 @@ pub fn render_to_dom(html: InternalHtml, container_id: &str) -> Result<(), JsVal
     });
 
     Ok(())
-}
-
-// Thread-local storage for the DomBuilder to keep event handlers alive
-thread_local! {
-    static BUILDER_STORAGE: std::cell::RefCell<Option<DomBuilder>> = std::cell::RefCell::new(None);
 }
